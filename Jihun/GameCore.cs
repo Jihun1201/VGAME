@@ -5,166 +5,785 @@ using Raylib_cs;
 using EntityGroup;
 using CombatSystem;
 using UpgradeLogic;
+using WeaponData;
+using FieldItem;
 
 namespace GameCore
 {
     public struct Vector2 { public float X; public float Y; public Vector2(float x, float y) { X = x; Y = y; } public static float Distance(Vector2 a, Vector2 b) { float dx = a.X - b.X; float dy = a.Y - b.Y; return (float)Math.Sqrt(dx * dx + dy * dy); } }
-    public enum GameState { Title, Playing, LevelUp, GameOver, Victory }
+
+    // ★ ChestReward (상자 보상 연출 화면) 추가
+    public enum GameState { Title, Playing, LevelUp, ChestReward, Pause, GameOver, Victory }
 
     public class Engine
     {
-        private Player _player; private List<Enemy> _enemies; private Weapon _weapon; private List<ExpGem> _gems; private LevelSystem _levelSystem;
-        private GameState _currentState = GameState.Title;
-        private float _spawnTimer = 0f;
-        private float _survivalTime = 0f;
-        private bool _boss1Spawned = false; 
-        private bool _boss2Spawned = false; 
+        private Player        _player;
+        private List<Enemy>   _enemies;
+        private Weapon        _weapon;
+        private List<ExpGem>  _gems;
+        private LevelSystem   _levelSystem;
+        private CardDeck      _cardDeck;        
 
-        private List<DamageText> _damageTexts; private Camera2D _camera; 
-        private Texture2D _texIdle, _texTitleIdle, _texWalk, _texEnemy, _texFloor; 
+        private List<DropItem> _dropItems  = new List<DropItem>();
+        private List<MapChest> _mapChests  = new List<MapChest>();
+        
+        // ★ 상자 보상 메시지를 담아둘 리스트
+        private List<string> _chestRewards = new List<string>();
+
+        private float _chestAnimTimer = 0f;
+
+        private Random _rand = new Random();
+
+        private GameState _currentState = GameState.Title;
+        private float _spawnTimer  = 0f;
+        private float _survivalTime= 0f;
+        private bool  _boss1Spawned= false;
+        private bool  _boss2Spawned= false;
+
+        private List<DamageText> _damageTexts;
+        private Camera2D _camera;
+        private Texture2D _texIdle, _texTitleIdle, _texWalk, _texEnemy, _texFloor;
+        private Font _fontKR;  
         private List<Texture2D> _gemTextures = new List<Texture2D>();
-        private string[] _gemFileNames = { "image/MonedaP.png", "image/MonedaD.png", "image/MonedaR.png", "image/spr_coin_gri.png", "image/spr_coin_strip4.png", "image/spr_coin_azu.png", "image/spr_coin_ama.png", "image/spr_coin_roj.png" };
+        private string[] _gemFileNames =
+        {
+            "image/MonedaP.png","image/MonedaD.png","image/MonedaR.png",
+            "image/spr_coin_gri.png","image/spr_coin_strip4.png",
+            "image/spr_coin_azu.png","image/spr_coin_ama.png","image/spr_coin_roj.png"
+        };
 
         public Engine()
         {
-            _player = new Player { Position = new Vector2(400, 300) }; _enemies = new List<Enemy>(); _weapon = new Weapon(); _gems = new List<ExpGem>(); _levelSystem = new LevelSystem(); _damageTexts = new List<DamageText>();
-            _camera = new Camera2D(); _camera.Offset = new System.Numerics.Vector2(800f / 2f, 600f / 2f); _camera.Zoom = 1.0f;
+            _player      = new Player { Position = new Vector2(400, 300) };
+            _enemies     = new List<Enemy>();
+            _weapon      = new Weapon();
+            _gems        = new List<ExpGem>();
+            _levelSystem = new LevelSystem();
+            _damageTexts = new List<DamageText>();
+
+            _cardDeck = new CardDeck();
+            _cardDeck.InitStartingWeapons(hasStaff: true, hasGarlic: false, hasOrbital: false);
+            _weapon.HasGarlic = false;
+            _weapon.HasOrbital = false;
+            _weapon.ApplyLevel(WeaponType.Staff, 1);
+
+            _camera = new Camera2D();
+            _camera.Offset = new System.Numerics.Vector2(800f / 2f, 600f / 2f);
+            _camera.Zoom   = 1.0f;
+
+            
         }
 
         public void Run()
         {
-            Raylib.InitWindow(800, 600, "MONSTER SURVIVOR"); Raylib.SetTargetFPS(60);
-            
-            _texIdle = Raylib.LoadTexture("image/idle.png"); 
-            _texTitleIdle = Raylib.LoadTexture("image/ups_idle.png"); 
-            
-            _texWalk = Raylib.LoadTexture("image/walk.png"); 
-            _texEnemy = Raylib.LoadTexture("image/Basic 1x.png"); 
-            _texFloor = Raylib.LoadTexture("image/floor.png"); 
-            
-            Raylib.SetTextureFilter(_texIdle, TextureFilter.Point);
-            Raylib.SetTextureFilter(_texWalk, TextureFilter.Point);
-            Raylib.SetTextureFilter(_texEnemy, TextureFilter.Point);
+            Raylib.InitWindow(800, 600, "ASDF SURVIVOR");
+            Raylib.SetTargetFPS(60);
+
+            Raylib.SetExitKey(KeyboardKey.Null);
+
+            _texIdle      = Raylib.LoadTexture("image/idle.png");
+            _texTitleIdle = Raylib.LoadTexture("image/ups_idle.png");
+            _texWalk      = Raylib.LoadTexture("image/walk.png");
+            _texEnemy     = Raylib.LoadTexture("image/Basic 1x.png");
+            _texFloor     = Raylib.LoadTexture("image/floor.png");
+
+            Raylib.SetTextureFilter(_texIdle,      TextureFilter.Point);
+            Raylib.SetTextureFilter(_texWalk,      TextureFilter.Point);
+            Raylib.SetTextureFilter(_texEnemy,     TextureFilter.Point);
             Raylib.SetTextureFilter(_texTitleIdle, TextureFilter.Bilinear);
 
-            foreach (var fileName in _gemFileNames) _gemTextures.Add(Raylib.LoadTexture(fileName));
-            
+            unsafe { _fontKR = Raylib.LoadFontEx("fonts/NanumGothic.ttf", 32, null, 65535); }
+            Raylib.SetTextureFilter(_fontKR.Texture, TextureFilter.Bilinear);
+
+            foreach (var f in _gemFileNames) _gemTextures.Add(Raylib.LoadTexture(f));
+
             while (!Raylib.WindowShouldClose()) { Update(Raylib.GetFrameTime()); Render(); }
-            
-            Raylib.UnloadTexture(_texIdle); Raylib.UnloadTexture(_texTitleIdle); 
-            Raylib.UnloadTexture(_texWalk); Raylib.UnloadTexture(_texEnemy); Raylib.UnloadTexture(_texFloor); foreach (var tex in _gemTextures) Raylib.UnloadTexture(tex); Raylib.CloseWindow();
+
+            Raylib.UnloadTexture(_texIdle); Raylib.UnloadTexture(_texTitleIdle);
+            Raylib.UnloadTexture(_texWalk); Raylib.UnloadTexture(_texEnemy);
+            Raylib.UnloadTexture(_texFloor);
+            Raylib.UnloadFont(_fontKR);
+            foreach (var t in _gemTextures) Raylib.UnloadTexture(t);
+            Raylib.CloseWindow();
         }
 
         private void Update(float dt)
         {
-            if (_currentState == GameState.Title) { if (Raylib.IsKeyPressed(KeyboardKey.Enter)) _currentState = GameState.Playing; return; }
+            if (_currentState == GameState.Title)
+            {
+                if (Raylib.IsKeyPressed(KeyboardKey.Enter)) _currentState = GameState.Playing;
+                return;
+            }
             if (_currentState == GameState.GameOver || _currentState == GameState.Victory) return;
-            if (_currentState == GameState.LevelUp) { if (Raylib.IsKeyPressed(KeyboardKey.One)) { _player.Speed += 30f; ResumeGame(); } else if (Raylib.IsKeyPressed(KeyboardKey.Two)) { _weapon.Damage += 5; ResumeGame(); } else if (Raylib.IsKeyPressed(KeyboardKey.Three)) { _weapon.FireCooldown *= 0.8f; ResumeGame(); } return; }
+            if (_currentState == GameState.Pause)
+            {
+                // ESC를 다시 누르면 게임으로 복귀
+                if (Raylib.IsKeyPressed(KeyboardKey.Escape)) _currentState = GameState.Playing;
+                // Q를 누르면 게임 완전 종료
+                if (Raylib.IsKeyPressed(KeyboardKey.Q)) Raylib.CloseWindow(); 
+                return;
+            }
+
+            // ★ [신규 추가] 게임 중 ESC를 누르면 일시 정지
+            if (_currentState == GameState.Playing && Raylib.IsKeyPressed(KeyboardKey.Escape))
+            {
+                _currentState = GameState.Pause;
+                return;
+            }
+
+            if (_currentState == GameState.LevelUp)
+            {
+                int chosen = -1;
+                if (Raylib.IsKeyPressed(KeyboardKey.One))   chosen = 0;
+                else if (Raylib.IsKeyPressed(KeyboardKey.Two))  chosen = 1;
+                else if (Raylib.IsKeyPressed(KeyboardKey.Three))chosen = 2;
+
+                if (chosen >= 0)
+                {
+                    var card = _cardDeck.SelectCard(chosen);
+                    if (card != null)
+                    {
+                        if (card.CardType == CardType.Weapon) _weapon.ApplyLevel(card.WeaponType, card.NextLevel);
+                        else _weapon.ApplyAccessory(card.AccessoryType, card.NextLevel, _player);
+                    }
+                    ResumeGame();
+                }
+                return;
+            }
+
+            // ★ 상자 보상 UI 확인 후 닫기
+            if (_currentState == GameState.ChestReward)
+            {
+                _chestAnimTimer += dt; // ★ 타이머 증가
+                // 연출이 2초 이상 진행된 후에만 엔터/스페이스로 닫을 수 있음 (뱀서식 딜레이)
+                if (_chestAnimTimer > 2.0f && (Raylib.IsKeyPressed(KeyboardKey.Enter) || Raylib.IsKeyPressed(KeyboardKey.Space))) {
+                    _currentState = GameState.Playing;
+                }
+                return;
+            }
 
             _survivalTime += dt;
             if (_survivalTime >= 300f) { _currentState = GameState.Victory; return; }
 
-            _player.Update(dt); _camera.Target = new System.Numerics.Vector2(_player.Position.X, _player.Position.Y);
-            foreach (var enemy in _enemies) { if (enemy.IsDead) continue; if (Vector2.Distance(_player.Position, enemy.Position) < 25.0f) { _player.CurrentHP -= enemy.Damage * dt; _player.HitTimer = 0.1f; } }
-            if (_player.IsDead) { _player.CurrentHP = 0; _currentState = GameState.GameOver; return; }
+            _player.Update(dt);
+            _camera.Target = new System.Numerics.Vector2(_player.Position.X, _player.Position.Y);
 
-            float currentSpawnDelay = Math.Max(0.2f, 0.8f - (_survivalTime / 300f) * 0.6f);
-            _spawnTimer += dt;
-            if (_spawnTimer >= currentSpawnDelay) 
+            if (Raylib.IsKeyPressed(KeyboardKey.C))
             {
-                _spawnTimer = 0f; Random rand = new Random();
-                float spawnX = _player.Position.X + (rand.Next(0, 2) == 0 ? rand.Next(-450, -400) : rand.Next(400, 450));
-                float spawnY = _player.Position.Y + (rand.Next(0, 2) == 0 ? rand.Next(-350, -300) : rand.Next(300, 450));
-                _enemies.Add(new Enemy { Position = new Vector2(spawnX, spawnY), HP = 10 + (_survivalTime / 60f) * 5f }); 
+                _mapChests.Add(new MapChest { Position = new Vector2(_player.Position.X + 40, _player.Position.Y) });
             }
 
-            if (_survivalTime >= 90f && !_boss1Spawned) { _boss1Spawned = true; _enemies.Add(new Enemy { Position = new Vector2(_player.Position.X + 450, _player.Position.Y), HP = 300, Damage = 20, Speed = 110, Scale = 6f, TintColor = Color.Purple, IsBoss = true }); }
-            if (_survivalTime >= 180f && !_boss2Spawned) { _boss2Spawned = true; _enemies.Add(new Enemy { Position = new Vector2(_player.Position.X - 450, _player.Position.Y), HP = 800, Damage = 30, Speed = 130, Scale = 8f, TintColor = Color.DarkPurple, IsBoss = true }); }
+            foreach (var e in _enemies)
+            {
+                if (e.IsDead) continue;
+                if (Vector2.Distance(_player.Position, e.Position) < 25.0f)
+                {
+                    if (!_player.IsShielded)
+                    { _player.CurrentHP -= e.Damage * dt; _player.HitTimer = 0.1f; }
+                }
+            }
+            if (_player.IsDead) { _player.CurrentHP = 0; _currentState = GameState.GameOver; return; }
 
-            foreach (var enemy in _enemies) enemy.Update(dt, _player.Position);
+            float spawnDelay = Math.Max(0.08f, 0.4f - (_survivalTime / 300f) * 0.32f);
+            _spawnTimer += dt;
+            if (_spawnTimer >= spawnDelay)
+            {
+                _spawnTimer = 0f;
+                float sx = _player.Position.X + (_rand.Next(0,2)==0 ? _rand.Next(-450,-400) : _rand.Next(400,450));
+                float sy = _player.Position.Y + (_rand.Next(0,2)==0 ? _rand.Next(-350,-300) : _rand.Next(300,450));
+                _enemies.Add(new Enemy { Position = new Vector2(sx, sy), HP = 10 + (_survivalTime/60f)*5f });
+            }
+
+            if (_survivalTime >= 90f  && !_boss1Spawned)
+            { _boss1Spawned = true; _enemies.Add(new Enemy { Position = new Vector2(_player.Position.X+450, _player.Position.Y), HP=300,Damage=20,Speed=110,Scale=6f,TintColor=Color.Purple,IsBoss=true }); }
+            if (_survivalTime >= 180f && !_boss2Spawned)
+            { _boss2Spawned = true; _enemies.Add(new Enemy { Position = new Vector2(_player.Position.X-450, _player.Position.Y), HP=800,Damage=30,Speed=130,Scale=8f,TintColor=Color.DarkPurple,IsBoss=true }); }
+
+            foreach (var e in _enemies) e.Update(dt, _player.Position);
             _weapon.Update(dt, _player, _enemies, _damageTexts);
-            foreach (var text in _damageTexts) text.Update(dt); _damageTexts.RemoveAll(t => t.Timer >= t.Lifetime);
+            foreach (var t in _damageTexts) t.Update(dt);
+            _damageTexts.RemoveAll(t => t.Timer >= t.Lifetime);
 
             for (int i = _enemies.Count - 1; i >= 0; i--)
             {
                 if (_enemies[i].IsDead)
                 {
-                    Random rand = new Random(); int dropIndex = 3; 
-                    if (_enemies[i].IsBoss) { dropIndex = (rand.Next(0, 2) == 0) ? 7 : 2; }
-                    else { if (rand.Next(0, 100) < 10) { int coinRoll = rand.Next(0, 100); if (coinRoll < 70) dropIndex = 0; else if (coinRoll < 95) dropIndex = 1; else dropIndex = 2; } else { int expRoll = rand.Next(0, 100); if (expRoll < 60) dropIndex = 3; else if (expRoll < 85) dropIndex = 4; else if (expRoll < 97) dropIndex = 5; else dropIndex = 6; } }
-                    _gems.Add(new ExpGem { Position = _enemies[i].Position, GemTypeIndex = dropIndex }); _enemies.RemoveAt(i);
+                    // ★ 보스가 죽으면 무조건 상자 드랍
+                    if (_enemies[i].IsBoss)
+                    { 
+                        _mapChests.Add(new MapChest { Position = _enemies[i].Position }); 
+                    }
+                    else
+                    {
+                        int dropIndex = 3;
+                        if (_rand.Next(0,100)<10) { int r=_rand.Next(0,100); dropIndex = r<70?0:r<95?1:2; }
+                        else { int r=_rand.Next(0,100); dropIndex = r<60?3:r<85?4:r<97?5:6; }
+                        _gems.Add(new ExpGem { Position = _enemies[i].Position, GemTypeIndex = dropIndex });
+
+                        int itemRoll = _rand.Next(0, 1000); 
+                        DropItemType? dropType = null;
+                        if (itemRoll < 5)   dropType = DropItemType.Food;    
+                        else if (itemRoll < 8)   dropType = DropItemType.Magnet;  
+                        else if (itemRoll < 10)  dropType = DropItemType.Shield;  
+
+                        if (dropType.HasValue)
+                            _dropItems.Add(new DropItem { Position = _enemies[i].Position, Type = dropType.Value });
+                    }
+                    _enemies.RemoveAt(i);
                 }
             }
-            foreach (var gem in _gems) { gem.Update(dt); if (Vector2.Distance(_player.Position, gem.Position) < (gem.IsCoin ? 30f : 50f)) { gem.IsCollected = true; if (gem.IsCoin) _player.Gold += gem.GetValue(); else _levelSystem.AddExp(gem.GetValue()); } }
+
+            if (_player.MagnetActive)
+            {
+                foreach (var gem in _gems) gem.IsMagnetized = true;
+                _player.MagnetActive = false; 
+            }
+
+            foreach (var gem in _gems)
+            {
+                gem.Update(dt, _player.Position); 
+                float pickupRange = gem.IsCoin ? 30f : 50f;
+                
+                if (Vector2.Distance(_player.Position, gem.Position) < pickupRange)
+                {
+                    gem.IsCollected = true;
+                    if (gem.IsCoin) _player.Gold += gem.GetValue();
+                    else            _levelSystem.AddExp(gem.GetValue());
+                }
+            }
             _gems.RemoveAll(g => g.IsCollected);
-            if (_levelSystem.IsLevelUpReady) _currentState = GameState.LevelUp;
+
+            // ★ 맵 곳곳에 상자가 랜덤 스폰되던 로직 완전 삭제 (보스만 상자 드랍)
+
+            foreach (var chest in _mapChests)
+            {
+                chest.Update(dt);
+                if (chest.State == ChestState.Closed &&
+                    Vector2.Distance(_player.Position, chest.Position) < chest.TriggerRadius)
+                {
+                    chest.Open();
+                    _chestRewards = _cardDeck.OpenChest(_weapon, _player);
+                    _currentState = GameState.ChestReward; 
+                    _chestAnimTimer = 0f; // ★ [신규 추가] 애니메이션 타이머 초기화
+                }
+            }
+            _mapChests.RemoveAll(c => c.IsDone);
+
+            foreach (var item in _dropItems)
+            {
+                item.Update(dt);
+                if (Vector2.Distance(_player.Position, item.Position) < item.PickupRadius)
+                {
+                    item.IsCollected = true;
+                    switch (item.Type)
+                    {
+                        case DropItemType.Food:
+                            _player.HealHP(30f);
+                            _damageTexts.Add(new DamageText { Position = _player.Position, Damage = -30f });
+                            break;
+                        case DropItemType.Magnet:
+                            _player.MagnetActive = true;
+                            break;
+                        case DropItemType.Shield:
+                            _player.ShieldTimer = 3f;
+                            break;
+                    }
+                }
+            }
+            _dropItems.RemoveAll(i => i.IsCollected);
+
+            if (_levelSystem.IsLevelUpReady)
+            {
+                _cardDeck.DrawCards();
+                _currentState = GameState.LevelUp;
+            }
         }
 
         private void ResumeGame() { _levelSystem.IsLevelUpReady = false; _currentState = GameState.Playing; }
 
-        // 파일명: GameCore.cs (Render 메서드 렌더링 수정본)
-
         private void Render()
         {
-            Raylib.BeginDrawing(); 
+            Raylib.BeginDrawing();
+
             if (_currentState == GameState.Title)
             {
                 Raylib.ClearBackground(new Color(20, 20, 35, 255));
                 if (_texTitleIdle.Width > 0)
                 {
-                    int currentTitleFrame = (int)(Raylib.GetTime() * 10) % 10; 
-                    float frameWidth = _texTitleIdle.Width / 10f; float frameHeight = _texTitleIdle.Height;
-                    Rectangle sourceRec = new Rectangle(currentTitleFrame * frameWidth, 0, frameWidth, frameHeight);
-                    float scale = 1.5f; 
-                    System.Numerics.Vector2 origin = new System.Numerics.Vector2((frameWidth * scale) / 2, (frameHeight * scale) / 2);
-                    Raylib.DrawTexturePro(_texTitleIdle, sourceRec, new Rectangle(400 + 15, 300 + 15, frameWidth * scale, frameHeight * scale), origin, 0f, new Color(0, 0, 0, 150));
-                    Raylib.DrawTexturePro(_texTitleIdle, sourceRec, new Rectangle(400, 300, frameWidth * scale, frameHeight * scale), origin, 0f, Color.White);
+                    int   frame     = (int)(Raylib.GetTime() * 10) % 10;
+                    float frameW    = _texTitleIdle.Width / 10f;
+                    float frameH    = _texTitleIdle.Height;
+                    var   src       = new Rectangle(frame * frameW, 0, frameW, frameH);
+                    float scale     = 1.5f;
+                    var   origin    = new System.Numerics.Vector2((frameW*scale)/2, (frameH*scale)/2);
+                    Raylib.DrawTexturePro(_texTitleIdle, src, new Rectangle(400+15,300+15,frameW*scale,frameH*scale), origin, 0f, new Color(0,0,0,150));
+                    Raylib.DrawTexturePro(_texTitleIdle, src, new Rectangle(400,300,frameW*scale,frameH*scale),       origin, 0f, Color.White);
                 }
-                Raylib.DrawText("ASDF SURVIVOR", 140, 50, 60, Color.Gold); 
-                if ((int)(Raylib.GetTime() * 2) % 2 == 0) Raylib.DrawText("- Press ENTER to Start -", 220, 500, 28, Color.White);
+                Raylib.DrawText("ASDF SURVIVOR", 140, 50, 60, Color.Gold);
+                if ((int)(Raylib.GetTime()*2)%2==0) Raylib.DrawText("- Press ENTER to Start -", 220, 500, 28, Color.White);
                 Raylib.EndDrawing(); return;
             }
 
-            Raylib.ClearBackground(Color.Black); Raylib.BeginMode2D(_camera);
-            if (_texFloor.Width > 0 && _texFloor.Height > 0) { int tileW = _texFloor.Width; int tileH = _texFloor.Height; float startX = (float)Math.Floor((_camera.Target.X - 400) / tileW) * tileW; float startY = (float)Math.Floor((_camera.Target.Y - 300) / tileH) * tileH; for (float x = startX; x < _camera.Target.X + 400 + tileW; x += tileW) for (float y = startY; y < _camera.Target.Y + 300 + tileH; y += tileH) Raylib.DrawTexture(_texFloor, (int)x, (int)y, Color.White); }
-            foreach (var gem in _gems) { Texture2D gemTex = _gemTextures[gem.GemTypeIndex]; if (gemTex.Width > 0) { float frameWidth = (float)gemTex.Width / gem.MaxFrames; Rectangle sourceRec = new Rectangle(gem.CurrentFrame * frameWidth, 0, frameWidth, gemTex.Height); Rectangle destRec = new Rectangle(gem.Position.X, gem.Position.Y, frameWidth, gemTex.Height); System.Numerics.Vector2 origin = new System.Numerics.Vector2(frameWidth / 2, gemTex.Height / 2); Raylib.DrawTexturePro(gemTex, sourceRec, destRec, origin, 0f, Color.White); } else Raylib.DrawCircle((int)gem.Position.X, (int)gem.Position.Y, 5, Color.SkyBlue); }
-            
-            // ★ 무기 시각 효과 렌더링
-            if (_weapon.HasGarlic) Raylib.DrawCircle((int)_player.Position.X, (int)_player.Position.Y, _weapon.GarlicRadius, new Color(150, 255, 150, 80));
-            if (_weapon.HasOrbital) 
-            { 
-                for (int i = 0; i < _weapon.OrbitalCount; i++) 
-                { 
-                    float currentAngle = _weapon.OrbitalAngle + (i * ((float)Math.PI * 2 / _weapon.OrbitalCount)); 
-                    int orbX = (int)(_player.Position.X + Math.Cos(currentAngle) * _weapon.OrbitalRadius); 
-                    int orbY = (int)(_player.Position.Y + Math.Sin(currentAngle) * _weapon.OrbitalRadius); 
-                    Raylib.DrawCircle(orbX, orbY, 8, new Color(0, 255, 255, 255)); // 궤도 구체
-                } 
+            Raylib.ClearBackground(Color.Black);
+            Raylib.BeginMode2D(_camera);
+
+            if (_texFloor.Width>0 && _texFloor.Height>0)
+            {
+                int tw=(int)_texFloor.Width, th=(int)_texFloor.Height;
+                float sx=(float)Math.Floor((_camera.Target.X-400)/tw)*tw;
+                float sy=(float)Math.Floor((_camera.Target.Y-300)/th)*th;
+                for (float x=sx; x<_camera.Target.X+400+tw; x+=tw)
+                for (float y=sy; y<_camera.Target.Y+300+th; y+=th)
+                    Raylib.DrawTexture(_texFloor,(int)x,(int)y,Color.White);
             }
-            foreach (var p in _weapon.Projectiles) Raylib.DrawCircle((int)p.Position.X, (int)p.Position.Y, 5, Color.Yellow);
-            
-            foreach (var e in _enemies) { if (_texEnemy.Width > 0) { float frameWidth = (float)_texEnemy.Width / 5; float frameHeight = (float)_texEnemy.Height / 3; Rectangle sourceRec = new Rectangle(0, 0, frameWidth, frameHeight); Rectangle destRec = new Rectangle(e.Position.X, e.Position.Y, frameWidth * e.Scale, frameHeight * e.Scale); System.Numerics.Vector2 origin = new System.Numerics.Vector2((frameWidth * e.Scale) / 2, (frameHeight * e.Scale) / 2); Color renderColor = (e.HitTimer > 0) ? Color.Red : e.TintColor; Raylib.DrawTexturePro(_texEnemy, sourceRec, destRec, origin, 0f, renderColor); } else Raylib.DrawRectangle((int)e.Position.X - 10, (int)e.Position.Y - 10, 20, 20, Color.Red); }
-            
-            if (_texIdle.Width > 0 && _texWalk.Width > 0) { Texture2D currentTex = _player.IsMoving ? _texWalk : _texIdle; int maxFrames = _player.IsMoving ? 24 : 10; int cols = _player.IsMoving ? 4 : 10; int rows = _player.IsMoving ? 6 : 1; int currentFrameNum = _player.CurrentFrame % maxFrames; float frameWidth = (float)currentTex.Width / cols; float frameHeight = (float)currentTex.Height / rows; float sourceX = (currentFrameNum % cols) * frameWidth; float sourceY = (currentFrameNum / cols) * frameHeight; float renderWidth = _player.IsFacingLeft ? frameWidth : -frameWidth; Rectangle sourceRec = new Rectangle(sourceX, sourceY, renderWidth, frameHeight); Rectangle destRec = new Rectangle(_player.Position.X, _player.Position.Y, frameWidth * 1.5f, frameHeight * 1.5f); System.Numerics.Vector2 origin = new System.Numerics.Vector2((frameWidth * 1.5f) / 2, (frameHeight * 1.5f) / 2); Color playerColor = (_player.IsDead || _player.HitTimer > 0) ? Color.Red : Color.White; Raylib.DrawTexturePro(currentTex, sourceRec, destRec, origin, 0f, playerColor); } else Raylib.DrawCircle((int)_player.Position.X, (int)_player.Position.Y, 15, Color.Blue);
 
-            float hpRatio = _player.CurrentHP / _player.MaxHP; int barWidth = 40; int barHeight = 6; int barX = (int)_player.Position.X - (barWidth / 2); 
-            int barY = (int)_player.Position.Y + 50; 
-            Raylib.DrawRectangle(barX, barY, barWidth, barHeight, Color.DarkGray); Raylib.DrawRectangle(barX, barY, (int)(barWidth * hpRatio), barHeight, Color.Red); 
-            foreach (var text in _damageTexts) Raylib.DrawText(text.Damage.ToString(), (int)text.Position.X - 10, (int)text.Position.Y - 20, 20, Color.Yellow);
+            foreach (var chest in _mapChests) chest.Draw();
+            foreach (var item in _dropItems) item.Draw();
+
+            foreach (var gem in _gems)
+            {
+                Texture2D gt = _gemTextures[gem.GemTypeIndex];
+                if (gt.Width>0)
+                {
+                    float fw=(float)gt.Width/gem.MaxFrames;
+                    var src = new Rectangle(gem.CurrentFrame*fw,0,fw,gt.Height);
+                    var dst = new Rectangle(gem.Position.X,gem.Position.Y,fw,gt.Height);
+                    var org = new System.Numerics.Vector2(fw/2,gt.Height/2);
+                    Raylib.DrawTexturePro(gt,src,dst,org,0f,Color.White);
+                }
+                else Raylib.DrawCircle((int)gem.Position.X,(int)gem.Position.Y,5,Color.SkyBlue);
+            }
+
+            // 진화 무기 및 기본 무기 이펙트 렌더링
+            if (_weapon.HasGarlic)
+                Raylib.DrawCircle((int)_player.Position.X,(int)_player.Position.Y,(int)(_weapon.GarlicRadius * _weapon.AccAreaMult),new Color(150,255,150,80));
+            if (_weapon.HasHolyWater)
+                Raylib.DrawCircle((int)_player.Position.X,(int)_player.Position.Y,(int)(250f * _weapon.AccAreaMult),new Color(255,255,200,60));
+            if (_weapon.HasOrbital)
+                for (int i=0;i<_weapon.OrbitalCount + _weapon.AccProjectileBonus;i++)
+                {
+                    float ang = _weapon.OrbitalAngle + (i*((float)Math.PI*2/(_weapon.OrbitalCount + _weapon.AccProjectileBonus)));
+                    Raylib.DrawCircle(
+                        (int)(_player.Position.X+Math.Cos(ang)*(_weapon.OrbitalRadius*_weapon.AccAreaMult)),
+                        (int)(_player.Position.Y+Math.Sin(ang)*(_weapon.OrbitalRadius*_weapon.AccAreaMult)),
+                        8, new Color(0,255,255,255));
+                }
+            if (_weapon.HasBlackHole)
+                for (int i = 0; i < 5; i++)
+                {
+                    float ang = _weapon.BlackHoleAngle + (i * 1.2f);
+                    Raylib.DrawCircle((int)(_player.Position.X+Math.Cos(ang)*(_weapon.AccAreaMult*100f)), (int)(_player.Position.Y+Math.Sin(ang)*(_weapon.AccAreaMult*100f)), 10, new Color(100,0,150,200));
+                }
+
+            foreach (var p in _weapon.Projectiles)
+                Raylib.DrawCircle((int)p.Position.X,(int)p.Position.Y, p.IsPiercing ? 8 : 5, p.IsPiercing ? Color.Orange : Color.Yellow);
+
+            foreach (var e in _enemies)
+            {
+                if (_texEnemy.Width>0)
+                {
+                    float fw=(float)_texEnemy.Width/5, fh=(float)_texEnemy.Height/3;
+                    var src = new Rectangle(0,0,fw,fh);
+                    var dst = new Rectangle(e.Position.X,e.Position.Y,fw*e.Scale,fh*e.Scale);
+                    var org = new System.Numerics.Vector2((fw*e.Scale)/2,(fh*e.Scale)/2);
+                    Color col = (e.HitTimer>0) ? Color.Red : e.TintColor;
+                    Raylib.DrawTexturePro(_texEnemy,src,dst,org,0f,col);
+                }
+                else Raylib.DrawRectangle((int)e.Position.X-10,(int)e.Position.Y-10,20,20,Color.Red);
+            }
+
+            if (_texIdle.Width>0 && _texWalk.Width>0)
+            {
+                Texture2D ct  = _player.IsMoving ? _texWalk : _texIdle;
+                int maxF = _player.IsMoving ? 24 : 10;
+                int cols = _player.IsMoving ?  4 : 10;
+                int rows = _player.IsMoving ?  6 :  1;
+                int fn   = _player.CurrentFrame % maxF;
+                float fw = (float)ct.Width/cols, fh=(float)ct.Height/rows;
+                float sx = (fn%cols)*fw, sy=(fn/cols)*fh;
+                float rw = _player.IsFacingLeft ? fw : -fw;
+                var src = new Rectangle(sx,sy,rw,fh);
+                var dst = new Rectangle(_player.Position.X,_player.Position.Y,fw*1.5f,fh*1.5f);
+                var org = new System.Numerics.Vector2((fw*1.5f)/2,(fh*1.5f)/2);
+                Color pc = (_player.IsDead||_player.HitTimer>0) ? Color.Red : Color.White;
+                Raylib.DrawTexturePro(ct,src,dst,org,0f,pc);
+            }
+            else Raylib.DrawCircle((int)_player.Position.X,(int)_player.Position.Y,15,Color.Blue);
+
+            if (_player.IsShielded)
+            {
+                float pulse = (float)(0.6 + 0.4 * Math.Sin(Raylib.GetTime() * 8));
+                Raylib.DrawCircle((int)_player.Position.X, (int)_player.Position.Y,
+                    28, new Color((byte)255, (byte)220, (byte)50, (byte)(int)(80 * pulse)));
+                Raylib.DrawCircleLines((int)_player.Position.X, (int)_player.Position.Y,
+                    28, new Color((byte)255, (byte)220, (byte)50, (byte)(int)(200 * pulse)));
+            }
+
+            float hpR = _player.CurrentHP/_player.MaxHP;
+            int bx=(int)_player.Position.X-20, by=(int)_player.Position.Y+50;
+            Raylib.DrawRectangle(bx,by,40,6,Color.DarkGray);
+            Raylib.DrawRectangle(bx,by,(int)(40*hpR),6,Color.Red);
+
+            foreach (var t in _damageTexts)
+            {
+                bool isHeal = t.Damage < 0;
+                string txt  = isHeal ? $"+{(-t.Damage):F0}" : t.Damage.ToString("F0");
+                Color  col  = isHeal ? Color.Green : Color.Yellow;
+                Raylib.DrawText(txt, (int)t.Position.X-10, (int)t.Position.Y-20, 18, col);
+            }
+
             Raylib.EndMode2D();
-            // ... (하단 HUD 및 상태창 코드는 기존과 동일)
 
-            float expRatio = (float)_levelSystem.CurrentExp / _levelSystem.MaxExp;
-            Raylib.DrawRectangle(0, 0, 800, 20, Color.Black); Raylib.DrawRectangle(0, 0, (int)(800 * expRatio), 20, Color.Blue);
-            Raylib.DrawText($"LV: {_levelSystem.Level}", 10, 25, 20, Color.White); Raylib.DrawText($"ATK: {_weapon.Damage}", 10, 50, 15, Color.LightGray);
-            Raylib.DrawText($"GOLD: {_player.Gold}", 650, 25, 20, Color.Gold);
-            int minutes = (int)_survivalTime / 60; int seconds = (int)_survivalTime % 60; string timeString = $"{minutes:D2}:{seconds:D2}";
-            Raylib.DrawText(timeString, 360, 25, 28, Color.White);
+            float expR = (float)_levelSystem.CurrentExp/_levelSystem.MaxExp;
+            Raylib.DrawRectangle(0,0,800,20,Color.Black);
+            Raylib.DrawRectangle(0,0,(int)(800*expR),20,Color.Blue);
+            Raylib.DrawText($"LV: {_levelSystem.Level}", 10,25,20,Color.White);
+            Raylib.DrawText($"ATK: {_weapon.StaffDamage * _weapon.AccDamageMult:F0}", 10, 50, 15, Color.LightGray);
+            Raylib.DrawText($"GOLD: {_player.Gold}", 650,25,20,Color.Gold);
+            int min=(int)_survivalTime/60, sec=(int)_survivalTime%60;
+            Raylib.DrawText($"{min:D2}:{sec:D2}", 360,25,28,Color.White);
 
-            if (_currentState == GameState.LevelUp) { Raylib.DrawRectangle(0, 0, 800, 600, new Color(0, 0, 0, 150)); Raylib.DrawText("LEVEL UP! (1, 2, 3)", 300, 200, 30, Color.Gold); Raylib.DrawRectangle(100, 280, 180, 100, Color.DarkBlue); Raylib.DrawText("[1] Speed +", 135, 320, 20, Color.White); Raylib.DrawRectangle(310, 280, 180, 100, Color.DarkPurple); Raylib.DrawText("[2] Damage +", 345, 320, 20, Color.White); Raylib.DrawRectangle(520, 280, 180, 100, Color.DarkGreen); Raylib.DrawText("[3] Atk Speed +", 540, 320, 20, Color.White); }
-            if (_currentState == GameState.GameOver) { Raylib.DrawRectangle(0, 0, 800, 600, new Color(150, 0, 0, 200)); Raylib.DrawText("YOU DIED", 260, 240, 60, Color.Red); Raylib.DrawText("Game Over", 340, 320, 24, Color.LightGray); }
-            if (_currentState == GameState.Victory) { Raylib.DrawRectangle(0, 0, 800, 600, new Color(0, 100, 255, 200)); Raylib.DrawText("VICTORY!", 260, 240, 60, Color.Gold); Raylib.DrawText($"Survived 5 Minutes / Gold Earned: {_player.Gold}", 180, 320, 24, Color.White); }
+            if (_currentState == GameState.LevelUp) RenderLevelUpCards();
+            if (_currentState == GameState.ChestReward) RenderChestReward();
+
+            if (_currentState == GameState.GameOver)
+            {
+                Raylib.DrawRectangle(0,0,800,600,new Color(150,0,0,200));
+                Raylib.DrawText("YOU DIED",  260,240,60,Color.Red);
+                Raylib.DrawText("Game Over", 340,320,24,Color.LightGray);
+            }
+            if (_currentState == GameState.Victory)
+            {
+                Raylib.DrawRectangle(0,0,800,600,new Color(0,100,255,200));
+                Raylib.DrawText("VICTORY!", 260,240,60,Color.Gold);
+                Raylib.DrawText($"Survived 5 Minutes  /  Gold: {_player.Gold}", 180,320,24,Color.White);
+            }
+
+            // ★ [신규 추가] 일시 정지 메뉴 렌더링
+            if (_currentState == GameState.Pause) RenderPauseMenu();
+
             Raylib.EndDrawing();
         }
+
+        private void RenderLevelUpCards()
+        {
+            Raylib.DrawRectangle(0, 0, 800, 600, new Color(0, 0, 0, 160));
+            Raylib.DrawText("LEVEL  UP", 290, 60, 42, Color.Gold);
+            DrawTextKR("업그레이드를 선택하세요", 270, 112, 20, new Color(200, 200, 200, 255));
+
+            var cards = _cardDeck.CurrentCards;
+            int cardCount = cards.Count;
+            if (cardCount == 0) return;
+
+            int cardW   = 180, cardH   = 240, spacing = 20;
+            int totalW  = cardCount * cardW + (cardCount - 1) * spacing;
+            int startX  = (800 - totalW) / 2;
+            int cardY   = 160;
+            string[] keys = { "1", "2", "3" };
+
+            for (int i = 0; i < cardCount; i++)
+            {
+                var card = cards[i];
+                int cx   = startX + i * (cardW + spacing);
+
+                Raylib.DrawRectangle(cx+5, cardY+5, cardW, cardH, new Color(0,0,0,120));
+                Raylib.DrawRectangle(cx, cardY, cardW, cardH, card.CardColor);
+                Raylib.DrawRectangleLines(cx, cardY, cardW, cardH, card.BorderColor);
+                Raylib.DrawRectangleLines(cx+2, cardY+2, cardW-4, cardH-4, new Color(card.BorderColor.R, card.BorderColor.G, card.BorderColor.B, (byte)80));
+
+                int iconAreaH = 70;
+                Raylib.DrawRectangle(cx, cardY, cardW, iconAreaH, new Color(0,0,0,60));
+                Raylib.DrawText(card.Icon, cx + cardW/2 - 14, cardY + 14, 42, card.BorderColor);
+
+                if (card.IsNewWeapon)
+                {
+                    Raylib.DrawRectangle(cx+8, cardY+iconAreaH+8, cardW-16, 18, new Color(255,180,0,200));
+                    Raylib.DrawText("NEW!", cx+cardW/2-16, cardY+iconAreaH+10, 14, Color.Black);
+                }
+
+                int titleY = card.IsNewWeapon ? cardY+iconAreaH+30 : cardY+iconAreaH+10;
+                DrawTextKR(card.Title, cx+10, titleY, 17, Color.White);
+
+                int divY = titleY + 26;
+                Raylib.DrawLine(cx+10, divY, cx+cardW-10, divY, new Color(card.BorderColor.R, card.BorderColor.G, card.BorderColor.B, (byte)120));
+                DrawWrappedTextKR(card.Description, cx+10, divY+8, cardW-20, 15, new Color(210,210,210,255));
+
+                string statLine = GetStatPreview(card);
+                if (statLine != "")
+                {
+                    int statY = cardY + cardH - 38;
+                    Raylib.DrawRectangle(cx+8, statY-4, cardW-16, 20, new Color(0,0,0,80));
+                    
+                    // ★ Raylib.DrawText를 DrawTextKR로 변경합니다.
+                    DrawTextKR(statLine, cx+12, statY, 13, new Color(255,230,100,255)); 
+                }
+
+                int btnY = cardY + cardH + 8;
+                Raylib.DrawRectangle(cx + cardW/2 - 18, btnY, 36, 28, card.BorderColor);
+                Raylib.DrawText($"[{keys[i]}]", cx + cardW/2 - 10, btnY + 6, 18, Color.Black);
+            }
+
+            DrawTextKR("1 / 2 / 3  키로 선택", 290, 460, 18, new Color(160,160,160,255));
+        }
+
+        // ★ [신규] 상자 보상 UI 렌더링
+        // ★ [신규] 상자 보상 화려한 뱀서식 UI 연출 렌더링
+        // ★ [신규] 긴장감 넘치는 뱀서식 룰렛 상자 연출
+        private void RenderChestReward()
+        {
+            Raylib.DrawRectangle(0, 0, 800, 600, new Color((byte)0, (byte)0, (byte)0, (byte)230));
+
+            int cx = 400; 
+            int cy = 400; 
+            int count = _chestRewards.Count;
+            float t = Math.Min(_chestAnimTimer, 1.0f); 
+            float easeOut = 1f - (1f - t) * (1f - t);
+
+            // ── [1] 스포트라이트 빛기둥 ──
+            if (_chestAnimTimer > 0.2f)
+            {
+                float beamLength = 600f * easeOut;
+                for (int i = 0; i < count; i++)
+                {
+                    float angle = -1.57f; 
+                    if (count > 1) angle += -0.5f + (1.0f / (count - 1)) * i; 
+
+                    Color beamColor = Color.SkyBlue; 
+                    if (count == 3) 
+                    {
+                        if (i == 0) beamColor = new Color((byte)255, (byte)100, (byte)100, (byte)150); 
+                        if (i == 1) beamColor = new Color((byte)255, (byte)200, (byte)50, (byte)150);  
+                        if (i == 2) beamColor = new Color((byte)100, (byte)255, (byte)100, (byte)150); 
+                    }
+                    else if (count == 5) beamColor = new Color((byte)200, (byte)50, (byte)255, (byte)150); 
+
+                    Vector2 top = new Vector2(cx + (float)Math.Cos(angle) * beamLength, cy + (float)Math.Sin(angle) * beamLength);
+                    Raylib.DrawLineEx(new System.Numerics.Vector2(cx, cy), new System.Numerics.Vector2(top.X, top.Y), 70f * easeOut, beamColor);
+                }
+            }
+
+            // ── [2] 쏟아지는 동전 파티클 ──
+            if (_chestAnimTimer > 0.1f && _chestAnimTimer < 2.5f)
+            {
+                int particleCount = count * 15; 
+                for (int i = 0; i < particleCount; i++)
+                {
+                    float pAngle = (i * 137.5f) * (float)Math.PI / 180f; 
+                    float pSpeed = 200f + (i % 7) * 50f;
+                    float pTime = _chestAnimTimer - 0.1f;
+                    
+                    float px = cx + (float)Math.Cos(pAngle) * pSpeed * pTime;
+                    float py = cy + (float)Math.Sin(pAngle) * pSpeed * pTime + 600f * pTime * pTime; 
+
+                    Raylib.DrawCircle((int)px, (int)py, 5, Color.Gold);
+                    Raylib.DrawCircleLines((int)px, (int)py, 5, new Color((byte)200, (byte)150, (byte)0, (byte)255));
+                }
+            }
+
+            // ── [3] 보물 상자 본체 ──
+            float bounce = _chestAnimTimer < 0.5f ? (float)Math.Sin(_chestAnimTimer * 10f) * 10f : 0f;
+            // 결과가 확정될 때마다(1.5, 2.3, 3.1...) 상자가 들썩이는 효과
+            for (int i = 0; i < count; i++) {
+                float lockTime = 1.5f + (i * 0.8f);
+                if (_chestAnimTimer > lockTime && _chestAnimTimer < lockTime + 0.15f) bounce = -15f; 
+            }
+
+            int drawY = cy + (int)bounce;
+            Raylib.DrawRectangle(cx - 50, drawY - 30, 100, 60, new Color((byte)139, (byte)90, (byte)43, (byte)255));
+            Raylib.DrawRectangleLines(cx - 50, drawY - 30, 100, 60, new Color((byte)80, (byte)50, (byte)20, (byte)255));
+            if (_chestAnimTimer > 0.3f) Raylib.DrawRectangle(cx - 50, drawY - 45, 100, 15, new Color((byte)160, (byte)110, (byte)55, (byte)255));
+            Raylib.DrawRectangle(cx - 10, drawY - 10, 20, 20, new Color((byte)220, (byte)180, (byte)50, (byte)255));
+
+            // ── [4] ★ 대망의 룰렛 애니메이션 ★ ──
+            string[] dummyNames = { "지팡이", "마늘", "궤도구체", "도끼", "날개", "갑옷", "반지", "장갑", "마법진", "금화 주머니", "???" };
+
+            if (_chestAnimTimer > 1.0f) // 상자가 완전히 열리고 1초 뒤부터 룰렛 시작
+            {
+                int spacing = 60; 
+                int startY = 250 - (count * spacing / 2);
+
+                for (int i = 0; i < count; i++)
+                {
+                    // 각 슬롯이 확정되는 시간 (1번: 1.5초, 2번: 2.3초, 3번: 3.1초 ...)
+                    float lockTime = 1.5f + (i * 0.8f); 
+
+                    if (_chestAnimTimer < lockTime)
+                    {
+                        // [룰렛이 돌아가는 중] - 텍스트가 미친듯이 바뀜
+                        int randIdx = (int)(_chestAnimTimer * 30 + i * 7) % dummyNames.Length; // 프레임 단위로 인덱스 변경
+                        string spinText = dummyNames[randIdx];
+
+                        // 텍스트가 위아래로 미세하게 흔들리게 처리 (긴장감 부여)
+                        int shakeY = (int)(Math.Sin(_chestAnimTimer * 50 + i) * 3);
+
+                        Raylib.DrawRectangle(150, startY + (i * spacing) - 15, 500, 40, new Color((byte)0, (byte)0, (byte)0, (byte)150));
+                        DrawTextKR(spinText, 260, startY + (i * spacing) + shakeY, 28, Color.Gray); // 회색으로 빠르게 돌아감
+                    }
+                    else
+                    {
+                        // [룰렛 확정 빡!]
+                        float timeSinceLock = _chestAnimTimer - lockTime;
+                        Color textColor = _chestRewards[i].Contains("진화") ? Color.Gold : Color.White;
+                        
+                        // 확정된 순간 0.1초 동안 하얗게 번쩍이는(Flash) 효과
+                        if (timeSinceLock < 0.1f) 
+                        {
+                            Raylib.DrawRectangle(150, startY + (i * spacing) - 15, 500, 40, new Color((byte)255, (byte)255, (byte)255, (byte)200));
+                        } 
+                        else 
+                        {
+                            Raylib.DrawRectangle(150, startY + (i * spacing) - 15, 500, 40, new Color((byte)0, (byte)0, (byte)0, (byte)150));
+                            DrawTextKR(_chestRewards[i], 260, startY + (i * spacing), 28, textColor);
+                        }
+                    }
+                }
+            }
+
+            // ── [5] 닫기 버튼 (모든 연출이 끝난 후 등장) ──
+            float exitTime = 1.5f + (count * 0.8f) + 0.5f;
+            if (_chestAnimTimer > exitTime)
+            {
+                DrawTextKR("ENTER 키로 닫기", 320, 520, 20, Color.LightGray);
+                if ((int)(Raylib.GetTime() * 4) % 2 == 0) 
+                    Raylib.DrawRectangleLines(300, 505, 200, 40, Color.Gold);
+            }
+        }
+
+        private void DrawTextKR(string text, int x, int y, int fontSize, Color color)
+        {
+            float scale = (float)fontSize / 32f;
+            Raylib.DrawTextEx(_fontKR, text, new System.Numerics.Vector2(x, y), fontSize, scale, color);
+        }
+
+        private void DrawWrappedTextKR(string text, int x, int y, int maxWidth, int fontSize, Color color)
+        {
+            string[] words = text.Split(' ');
+            string   line  = "";
+            int      lineY = y;
+            int      lineH = fontSize + 4;
+            float    scale = (float)fontSize / 32f;
+
+            foreach (var word in words)
+            {
+                string test = line.Length == 0 ? word : line + " " + word;
+                var    size = Raylib.MeasureTextEx(_fontKR, test, fontSize, scale);
+                if (size.X > maxWidth && line.Length > 0)
+                {
+                    Raylib.DrawTextEx(_fontKR, line, new System.Numerics.Vector2(x, lineY), fontSize, scale, color);
+                    line  = word;
+                    lineY += lineH;
+                }
+                else line = test;
+            }
+            if (line.Length > 0)
+                Raylib.DrawTextEx(_fontKR, line, new System.Numerics.Vector2(x, lineY), fontSize, scale, color);
+        }
+
+        private string GetStatPreview(UpgradeCard card)
+        {
+            if (card.CardType == CardType.Weapon)
+            {
+                var data = WeaponTable.GetWeapon(card.WeaponType, card.NextLevel);
+                switch (card.WeaponType)
+                {
+                    case WeaponType.Staff: return $"DMG {data.StaffDamage:F0}  CD {data.StaffCooldown:F2}s  x{data.StaffProjectileCount}";
+                    case WeaponType.Garlic: return $"DMG {data.GarlicDamage:F0}  R {data.GarlicRadius:F0}";
+                    case WeaponType.Orbital: return $"DMG {data.OrbitalDamage:F0}  x{data.OrbitalCount}개";
+                    case WeaponType.Axe: return $"DMG {data.AxeDamage:F0}  x{data.AxeCount}개";
+                    default: return "";
+                }
+            }
+            else
+            {
+                var data = WeaponTable.GetAcc(card.AccessoryType, card.NextLevel);
+                switch (card.AccessoryType)
+                {
+                    case AccessoryType.Wings: 
+                        if (card.NextLevel == 1) return "투사체 날아가는 속도 UP";
+                        if (card.NextLevel == 2) return "플레이어 이동 속도 UP";
+                        if (card.NextLevel == 4) return "투사체 크기 UP";
+                        return $"투사체 개수 +{data.ValueInt}";
+                    case AccessoryType.Armor: return $"최대 체력 +{data.ValueFloat:F0}";
+                    case AccessoryType.Ring: return $"공격 범위 +{(data.ValueFloat - 1f) * 100:F0}%";
+                    case AccessoryType.Glove: return $"모든 데미지 +{(data.ValueFloat - 1f) * 100:F0}%";
+                    default: return "";
+                }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // ★ [신규 추가] ESC 일시 정지 메뉴 화면
+        // ─────────────────────────────────────────────────────────────
+        private void RenderPauseMenu()
+        {
+            // 화면 전체 반투명 처리
+            Raylib.DrawRectangle(0, 0, 800, 600, new Color(0, 0, 0, 220));
+            DrawTextKR("일시 정지", 330, 40, 40, Color.Gold);
+
+            // ── [1] 플레이어 현재 스펙 (왼쪽 패널) ──
+            int statX = 50, statY = 120;
+            Raylib.DrawRectangle(statX, statY, 300, 400, new Color(30, 30, 40, 240));
+            Raylib.DrawRectangleLines(statX, statY, 300, 400, Color.LightGray);
+            DrawTextKR("현재 스펙", statX + 100, statY + 20, 24, Color.White);
+            Raylib.DrawLine(statX + 20, statY + 60, statX + 280, statY + 60, Color.Gray);
+
+            int sy = statY + 80;
+            DrawTextKR($"최대 체력: {_player.MaxHP:F0}", statX + 30, sy, 20, Color.LightGray); sy += 40;
+            DrawTextKR($"이동 속도: {_player.Speed:F0}", statX + 30, sy, 20, Color.LightGray); sy += 40;
+            DrawTextKR($"피해량: +{(_weapon.AccDamageMult - 1f) * 100:F0}%", statX + 30, sy, 20, Color.LightGray); sy += 40;
+            DrawTextKR($"공격 범위: +{(_weapon.AccAreaMult - 1f) * 100:F0}%", statX + 30, sy, 20, Color.LightGray); sy += 40;
+            DrawTextKR($"투사체 추가: +{_weapon.AccProjectileBonus}개", statX + 30, sy, 20, Color.LightGray); sy += 40;
+            DrawTextKR($"부활: 0회 (미구현)", statX + 30, sy, 20, Color.DarkGray);
+
+            // ── [2] 획득한 장비 현황 (오른쪽 패널) ──
+            int eqX = 400, eqY = 120;
+            Raylib.DrawRectangle(eqX, eqY, 350, 400, new Color(30, 30, 40, 240));
+            Raylib.DrawRectangleLines(eqX, eqY, 350, 400, Color.LightGray);
+            DrawTextKR("보유 장비", eqX + 130, eqY + 20, 24, Color.White);
+            Raylib.DrawLine(eqX + 20, eqY + 60, eqX + 330, eqY + 60, Color.Gray);
+
+            int ey = eqY + 80;
+            
+            // 무기 리스트 출력 (파란색)
+            foreach (var w in _cardDeck.WeaponLevels)
+            {
+                if (w.Value > 0)
+                {
+                    DrawTextKR(GetWeaponNameUI(w.Key), eqX + 30, ey, 20, new Color(80, 140, 255, 255));
+                    DrawLevelSquares(eqX + 180, ey + 4, w.Value, 5); // 5칸 네모 그리기
+                    ey += 35;
+                }
+            }
+            
+            // 장신구 리스트 출력 (주황색)
+            foreach (var a in _cardDeck.AccessoryLevels)
+            {
+                if (a.Value > 0)
+                {
+                    DrawTextKR(GetAccNameUI(a.Key), eqX + 30, ey, 20, new Color(255, 180, 80, 255));
+                    DrawLevelSquares(eqX + 180, ey + 4, a.Value, 5); // 5칸 네모 그리기
+                    ey += 35;
+                }
+            }
+
+            // ── [3] 하단 안내 문구 ──
+            DrawTextKR("ESC: 게임으로 돌아가기   /   Q: 게임 종료", 220, 540, 20, Color.Gray);
+        }
+
+        // ★ 아이템 강화 수치를 뱀서식 네모 칸으로 렌더링
+        private void DrawLevelSquares(int x, int y, int level, int maxLevel)
+        {
+            for (int i = 0; i < maxLevel; i++)
+            {
+                if (i < level) 
+                    Raylib.DrawRectangle(x + (i * 20), y, 14, 14, Color.Gold); // 꽉 찬 금색 칸
+                else 
+                    Raylib.DrawRectangleLines(x + (i * 20), y, 14, 14, Color.DarkGray); // 빈 회색 테두리 칸
+            }
+        }
+
+        // UI용 이름 변환기
+        private string GetWeaponNameUI(WeaponType t) => t switch { WeaponType.Staff => "지팡이", WeaponType.Garlic => "마늘", WeaponType.Orbital => "궤도구체", WeaponType.Axe => "도끼", WeaponType.MagicCircle => "마법진 (진화)", WeaponType.HolyWater => "성수 (진화)", WeaponType.BlackHole => "블랙홀 (진화)", WeaponType.AxeStorm => "도끼폭풍 (진화)", _ => "???" };
+private string GetAccNameUI(AccessoryType t) => t switch { AccessoryType.Wings => "날개", AccessoryType.Armor => "갑옷", AccessoryType.Ring => "반지", AccessoryType.Glove => "장갑", _ => "???" };
     }
 }
