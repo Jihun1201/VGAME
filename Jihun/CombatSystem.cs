@@ -6,109 +6,98 @@ using EntityGroup;
 
 namespace CombatSystem
 {
-    public class DamageText
+    public class Projectile { public Vector2 Position; public Vector2 Direction; public float Speed; public float Damage; public float Lifetime; public float Timer = 0f; public bool IsActive = true; }
+    public class DamageText { public Vector2 Position; public float Damage; public float Lifetime = 0.5f; public float Timer = 0f; public void Update(float dt) { Timer += dt; Position.Y -= 30f * dt; } }
+
+    public class Weapon
     {
-        public Vector2 Position;
-        public int Damage;
-        public float Timer = 0f;
-        public float Lifetime = 0.5f;
-
-        public void Update(float dt)
-        {
-            Timer += dt;
-            Position.Y -= 50f * dt;
-        }
-    }
-
-    public class Projectile 
-    { 
-        public Vector2 Position; public Vector2 Direction; public float Speed = 500f; public int Damage = 5; public bool IsActive = true;
-        public void Update(float deltaTime) 
-        { 
-            Position.X += Direction.X * Speed * deltaTime; Position.Y += Direction.Y * Speed * deltaTime; 
-        }
-    }
-
-    public class Weapon 
-    {  
-        public List<Projectile> Projectiles = new List<Projectile>(); 
-        public float FireCooldown = 0.5f; 
-        public int Damage = 5; 
+        // 1. 기본 무기 (지팡이 투사체)
+        public float Damage = 0f; public float FireCooldown = 0.5f; private float _fireTimer = 0f; public float Range = 300f;
+        public List<Projectile> Projectiles = new List<Projectile>();
         
-        // ★ 무기 사거리(시야) 추가 (화면 밖의 적은 무시함)
-        public float Range = 400f; 
-        
-        private float _timer = 0f;
+        // 2. 마늘 (광역 오라)
+        public bool HasGarlic = true; // 우선 시작하자마자 적용되도록 true
+        public float GarlicDamage = 5f; public float GarlicRadius = 70f; public float GarlicCooldown = 0.5f; private float _garlicTimer = 0f;
 
-        public void Update(float dt, Player player, List<Enemy> enemies, List<DamageText> damageTexts) 
+        // 3. 궤도 무기 (주위를 도는 구체)
+        public bool HasOrbital = true; // 우선 시작하자마자 적용되도록 true
+        public int OrbitalCount = 2; public float OrbitalRadius = 80f; public float OrbitalSpeed = 3f; public float OrbitalDamage = 15f;
+        public float OrbitalAngle = 0f;
+
+        public void Update(float dt, Player player, List<Enemy> enemies, List<DamageText> damageTexts)
         {
-            _timer += dt; 
-            if (_timer >= FireCooldown && enemies.Count > 0) 
-            { 
-                // 발사 시도 (사거리 내에 적이 없으면 발사하지 않음)
-                bool fired = FireAtNearest(player.Position, enemies);
-                if (fired) _timer = 0f; // 진짜로 쐈을 때만 쿨타임 초기화
-            }
-            
-            foreach (var p in Projectiles) 
+            // [1] 지팡이 연산
+            _fireTimer += dt;
+            if (_fireTimer >= FireCooldown)
             {
-                if (!p.IsActive) continue; 
-                p.Update(dt);
-                
-                // 투사체도 일정 거리 이상 날아가면 소멸되도록 처리 (메모리 최적화)
-                if (Vector2.Distance(player.Position, p.Position) > 600f)
+                Enemy nearest = null; float minDist = Range;
+                foreach (var e in enemies) { if (e.IsDead) continue; float d = Vector2.Distance(player.Position, e.Position); if (d < minDist) { minDist = d; nearest = e; } }
+                if (nearest != null)
                 {
-                    p.IsActive = false;
-                    continue;
+                    float dx = nearest.Position.X - player.Position.X; float dy = nearest.Position.Y - player.Position.Y;
+                    float dist = (float)Math.Sqrt(dx * dx + dy * dy);
+                    Projectiles.Add(new Projectile { Position = player.Position, Direction = new Vector2(dx / dist, dy / dist), Speed = 400f, Damage = Damage, Lifetime = 2f });
+                    _fireTimer = 0f;
                 }
+            }
+            foreach (var p in Projectiles)
+            {
+                p.Position.X += p.Direction.X * p.Speed * dt; p.Position.Y += p.Direction.Y * p.Speed * dt; p.Timer += dt;
+                if (p.Timer >= p.Lifetime) p.IsActive = false;
+                foreach (var e in enemies) { if (!e.IsDead && p.IsActive && Vector2.Distance(p.Position, e.Position) < 20f) { e.HP -= p.Damage; e.HitTimer = 0.1f; e.KnockbackDir = p.Direction; e.KnockbackSpeed = 150f; p.IsActive = false; damageTexts.Add(new DamageText { Position = e.Position, Damage = p.Damage }); } }
+            }
+            Projectiles.RemoveAll(p => !p.IsActive);
 
-                foreach (var e in enemies) 
+            // [2] 마늘 연산
+            if (HasGarlic)
+            {
+                _garlicTimer += dt;
+                if (_garlicTimer >= GarlicCooldown)
                 {
-                    if (e.IsDead) continue;
-                    if (Vector2.Distance(p.Position, e.Position) < 15.0f) 
-                    { 
-                        e.HP -= p.Damage; 
-                        p.IsActive = false; 
+                    bool hitAny = false;
+                    foreach (var e in enemies)
+                    {
+                        if (!e.IsDead && Vector2.Distance(player.Position, e.Position) <= GarlicRadius)
+                        {
+                            e.HP -= GarlicDamage; e.HitTimer = 0.1f;
+                            float dx = e.Position.X - player.Position.X; float dy = e.Position.Y - player.Position.Y;
+                            float dist = (float)Math.Sqrt(dx * dx + dy * dy);
+                            if (dist > 0) { e.KnockbackDir = new Vector2(dx / dist, dy / dist); e.KnockbackSpeed = 100f; }
+                            damageTexts.Add(new DamageText { Position = e.Position, Damage = GarlicDamage });
+                            hitAny = true;
+                        }
+                    }
+                    if (hitAny) _garlicTimer = 0f; 
+                }
+            }
 
-                        e.HitTimer = 0.15f; 
-                        e.KnockbackDir = p.Direction; 
-                        e.KnockbackSpeed = 300f; 
-
-                        damageTexts.Add(new DamageText { Position = e.Position, Damage = p.Damage });
-                        break; 
+            // [3] 궤도 무기 연산
+            if (HasOrbital)
+            {
+                OrbitalAngle += OrbitalSpeed * dt;
+                if (OrbitalAngle > (float)Math.PI * 2) OrbitalAngle -= (float)Math.PI * 2;
+                
+                for (int i = 0; i < OrbitalCount; i++)
+                {
+                    float currentAngle = OrbitalAngle + (i * ((float)Math.PI * 2 / OrbitalCount));
+                    Vector2 orbPos = new Vector2(player.Position.X + (float)Math.Cos(currentAngle) * OrbitalRadius, player.Position.Y + (float)Math.Sin(currentAngle) * OrbitalRadius);
+                    
+                    foreach (var e in enemies)
+                    {
+                        if (!e.IsDead && Vector2.Distance(orbPos, e.Position) < 25f)
+                        {
+                            if (e.HitTimer <= 0) // 다단히트 방지용 피격 무적시간 활용
+                            {
+                                e.HP -= OrbitalDamage; e.HitTimer = 0.2f; 
+                                float dx = e.Position.X - player.Position.X; float dy = e.Position.Y - player.Position.Y;
+                                float dist = (float)Math.Sqrt(dx * dx + dy * dy);
+                                if (dist > 0) { e.KnockbackDir = new Vector2(dx / dist, dy / dist); e.KnockbackSpeed = 150f; }
+                                damageTexts.Add(new DamageText { Position = e.Position, Damage = OrbitalDamage });
+                            }
+                        }
                     }
                 }
             }
-            Projectiles.RemoveAll(p => !p.IsActive);
-        }
-
-        // 반환형을 void에서 bool로 변경 (사격 성공 여부 반환)
-        private bool FireAtNearest(Vector2 playerPos, List<Enemy> enemies) 
-        {
-            Enemy nearest = null; 
-            float minDistance = float.MaxValue;
-            
-            foreach (var e in enemies) 
-            {
-                float dist = Vector2.Distance(playerPos, e.Position); 
-                
-                // ★ 거리가 가장 가깝고, 동시에 '사거리(Range)' 안쪽에 있는 적만 타겟팅
-                if (dist < minDistance && dist <= Range) 
-                { 
-                    minDistance = dist; 
-                    nearest = e; 
-                }
-            }
-            
-            if (nearest != null) 
-            {
-                float dirX = nearest.Position.X - playerPos.X; 
-                float dirY = nearest.Position.Y - playerPos.Y;
-                float dist = (float)Math.Sqrt(dirX * dirX + dirY * dirY);
-                Projectiles.Add(new Projectile { Position = playerPos, Direction = new Vector2(dirX / dist, dirY / dist), Damage = this.Damage });
-                return true; // 사격 성공
-            }
-            return false; // 사거리 내에 적이 없어서 실패
         }
     }
 }
