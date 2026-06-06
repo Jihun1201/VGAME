@@ -64,6 +64,8 @@ namespace EntityGroup
         public bool MagnetActive = false;
         public float ShieldTimer = 0f;
         public bool  IsShielded  => ShieldTimer > 0f;
+        // ★ 메타 업그레이드: 부활 횟수
+        public int   ReviveCount = 0;
 
         public bool IsMoving      = false;
         public bool IsFacingLeft  = false;
@@ -106,7 +108,18 @@ namespace EntityGroup
         public float   HP          = 10f;
         public bool    IsDead      => HP <= 0;
         public float   Damage      = 10f;
-        public float   HitTimer    = 0f;
+
+        // 버그8 수정: HitTimer를 무기 종류별로 분리하여 멀티 무기 시너지 보장
+        // 투사체(지팡이/마법진/도끼/도끼폭풍) 피격 쿨다운
+        public float ProjectileHitTimer = 0f;
+        // 근접(마늘/성수) 피격 쿨다운
+        public float MeleeHitTimer      = 0f;
+        // 궤도(궤도구체/블랙홀) 피격 쿨다운
+        public float OrbitalHitTimer    = 0f;
+
+        // GameCore에서 플레이어 충돌 체크 시 사용하는 통합 HitTimer (플레이어 피격 무적)
+        public float HitTimer = 0f;
+
         public Vector2 KnockbackDir;
         public float   KnockbackSpeed = 0f;
 
@@ -116,7 +129,10 @@ namespace EntityGroup
 
         public void Update(float deltaTime, Vector2 playerPosition)
         {
-            if (HitTimer > 0) HitTimer -= deltaTime;
+            if (HitTimer         > 0) HitTimer         -= deltaTime;
+            if (ProjectileHitTimer > 0) ProjectileHitTimer -= deltaTime;
+            if (MeleeHitTimer    > 0) MeleeHitTimer    -= deltaTime;
+            if (OrbitalHitTimer  > 0) OrbitalHitTimer  -= deltaTime;
 
             if (KnockbackSpeed > 0)
             {

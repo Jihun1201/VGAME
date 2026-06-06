@@ -11,6 +11,7 @@ namespace CombatSystem
     {
         public Vector2 Position; public Vector2 Velocity; public float Damage; public float Lifetime; public float Timer = 0f; public bool IsActive = true;
         public bool IsPiercing = false; public int PierceCount = 1;
+        public bool IsAxeType = false; // 중력(포물선) 적용 여부 — 도끼 계열만 true
     }
 
     public class DamageText
@@ -23,6 +24,8 @@ namespace CombatSystem
     {
         // 장신구 패시브 스탯
         public int AccProjectileBonus = 0; public float AccAreaMult = 1f; public float AccDamageMult = 1f;
+        // 버그3 추가: 투사체 속도 배율 (날개 Lv1 효과)
+        public float AccProjectileSpeedMult = 1f;
 
         // 지팡이
         public bool HasStaff = false; public float StaffDamage = 10f; public float StaffCooldown = 0.8f; public int StaffCount = 1; private float _staffTimer = 0f;
@@ -56,7 +59,19 @@ namespace CombatSystem
         {
             var data = WeaponTable.GetAcc(type, level);
             switch (type) {
-                case AccessoryType.Wings: AccProjectileBonus = data.ValueInt; break;
+                case AccessoryType.Wings:
+                    // 버그3 수정: 레벨별 실제 효과 분기
+                    if (data.ValueInt == -1) {
+                        // Lv2: 이동속도 증가 (ValueFloat = 증가량)
+                        player.Speed += data.ValueFloat;
+                    } else if (data.ValueFloat > 1.0f && data.ValueInt == 0) {
+                        // Lv1: 투사체 속도 배율 (ValueFloat = 배율, 별도 필드에 저장)
+                        AccProjectileSpeedMult = data.ValueFloat;
+                    } else {
+                        // Lv3~5: 투사체 개수 보너스 누적
+                        AccProjectileBonus += data.ValueInt;
+                    }
+                    break;
                 case AccessoryType.Armor: player.MaxHP += data.ValueFloat; player.HealHP(data.ValueFloat); break;
                 case AccessoryType.Ring: AccAreaMult = data.ValueFloat; break;
                 case AccessoryType.Glove: AccDamageMult = data.ValueFloat; break;
@@ -89,7 +104,7 @@ namespace CombatSystem
                         for (int i = 0; i < count; i++) {
                             float angle = count > 1 ? -0.2f + (0.4f / (count - 1)) * i : 0f;
                             Vector2 rotDir = Rotate(dir, angle);
-                            Projectiles.Add(new Projectile { Position = player.Position, Velocity = new Vector2(rotDir.X * 400f, rotDir.Y * 400f), Damage = StaffDamage * AccDamageMult, Lifetime = 2f });
+                            Projectiles.Add(new Projectile { Position = player.Position, Velocity = new Vector2(rotDir.X * 400f * AccProjectileSpeedMult, rotDir.Y * 400f * AccProjectileSpeedMult), Damage = StaffDamage * AccDamageMult, Lifetime = 2f });
                         }
                         _staffTimer = 0f;
                     }
@@ -103,7 +118,7 @@ namespace CombatSystem
                     int count = AxeCount + AccProjectileBonus;
                     for (int i = 0; i < count; i++) {
                         float vx = (i % 2 == 0 ? 1 : -1) * (50f + i * 20f);
-                        Projectiles.Add(new Projectile { Position = new Vector2(player.Position.X, player.Position.Y - 20), Velocity = new Vector2(vx, -AxeSpeed), Damage = AxeDamage * AccDamageMult, Lifetime = 3f, IsPiercing = true, PierceCount = 99 });
+                        Projectiles.Add(new Projectile { Position = new Vector2(player.Position.X, player.Position.Y - 20), Velocity = new Vector2(vx, -AxeSpeed), Damage = AxeDamage * AccDamageMult, Lifetime = 3f, IsPiercing = true, PierceCount = 99, IsAxeType = true });
                     }
                     _axeTimer = 0f;
                 }
@@ -118,7 +133,9 @@ namespace CombatSystem
                         Vector2 dir = GetDir(player.Position, nearest.Position);
                         int count = 3 + AccProjectileBonus;
                         for (int i = 0; i < count; i++) {
-                            Vector2 rotDir = Rotate(dir, -0.3f + (0.6f / (count - 1)) * i);
+                            // 버그5 수정: count==1일 때 0으로 나누기 방지
+                            float angle = count > 1 ? -0.3f + (0.6f / (count - 1)) * i : 0f;
+                            Vector2 rotDir = Rotate(dir, angle);
                             Projectiles.Add(new Projectile { Position = player.Position, Velocity = new Vector2(rotDir.X * 600f, rotDir.Y * 600f), Damage = 80f * AccDamageMult, Lifetime = 2.5f, IsPiercing = true, PierceCount = 999 });
                         }
                         _mcTimer = 0f;
@@ -130,9 +147,14 @@ namespace CombatSystem
             if (HasAxeStorm) {
                 _asTimer += dt;
                 if (_asTimer >= 1.2f) {
-                    for (int i = 0; i < 8 + AccProjectileBonus; i++) {
-                        float angle = i * ((float)Math.PI * 2 / (8 + AccProjectileBonus));
-                        Projectiles.Add(new Projectile { Position = player.Position, Velocity = new Vector2((float)Math.Cos(angle) * 300f, -600f), Damage = 120f * AccDamageMult, Lifetime = 3f, IsPiercing = true, PierceCount = 99 });
+                    int totalCount = 8 + AccProjectileBonus;
+                    for (int i = 0; i < totalCount; i++) {
+                        float angle = i * ((float)Math.PI * 2 / totalCount);
+                        // 버그4 수정: 수평(cos)뿐 아니라 수직(sin)도 반영하여 진짜 8방향으로 퍼짐
+                        // 중력(IsAxeType=true)이 붙으므로 위쪽 방향엔 보정 오프셋(-300f) 추가
+                        float vx = (float)Math.Cos(angle) * 500f;
+                        float vy = (float)Math.Sin(angle) * 500f - 300f;
+                        Projectiles.Add(new Projectile { Position = player.Position, Velocity = new Vector2(vx, vy), Damage = 120f * AccDamageMult, Lifetime = 3f, IsPiercing = true, PierceCount = 99, IsAxeType = true });
                     }
                     _asTimer = 0f;
                 }
@@ -141,12 +163,12 @@ namespace CombatSystem
             // 투사체 이동 및 충돌
             foreach (var p in Projectiles) {
                 p.Position.X += p.Velocity.X * dt; p.Position.Y += p.Velocity.Y * dt;
-                if (p.IsPiercing) p.Velocity.Y += 800f * dt; // 도끼용 중력
+                if (p.IsAxeType) p.Velocity.Y += 800f * dt; // 도끼 계열만 중력(포물선) 적용
                 p.Timer += dt; if (p.Timer >= p.Lifetime) p.IsActive = false;
 
                 foreach (var e in enemies) {
-                    if (!e.IsDead && p.IsActive && e.HitTimer <= 0 && Vector2.Distance(p.Position, e.Position) < 25f) {
-                        e.HP -= p.Damage; e.HitTimer = 0.15f;
+                    if (!e.IsDead && p.IsActive && e.ProjectileHitTimer <= 0 && Vector2.Distance(p.Position, e.Position) < 25f) {
+                        e.HP -= p.Damage; e.ProjectileHitTimer = 0.15f;
                         damageTexts.Add(new DamageText { Position = e.Position, Damage = p.Damage });
                         if (p.IsPiercing) { p.PierceCount--; if (p.PierceCount <= 0) p.IsActive = false; }
                         else { p.IsActive = false; break; }
@@ -159,31 +181,41 @@ namespace CombatSystem
             if (HasGarlic) {
                 _garlicTimer += dt;
                 if (_garlicTimer >= GarlicCooldown) {
-                    float rad = GarlicRadius * AccAreaMult; bool hit = false;
+                    float rad = GarlicRadius; // 마늘은 범위 장신구(반지) 영향을 받지 않음
                     foreach (var e in enemies) {
                         if (!e.IsDead && Vector2.Distance(player.Position, e.Position) <= rad) {
-                            e.HP -= GarlicDamage * AccDamageMult; e.HitTimer = 0.1f;
+                            e.HP -= GarlicDamage * AccDamageMult; e.MeleeHitTimer = 0.1f;
                             Vector2 d = GetDir(player.Position, e.Position); e.KnockbackDir = d; e.KnockbackSpeed = 100f;
-                            damageTexts.Add(new DamageText { Position = e.Position, Damage = GarlicDamage * AccDamageMult }); hit = true;
+                            damageTexts.Add(new DamageText { Position = e.Position, Damage = GarlicDamage * AccDamageMult });
                         }
                     }
-                    if (hit) _garlicTimer = 0f;
+                    // 버그1 수정: 적 유무와 무관하게 항상 타이머 리셋 (기존: hit==true 일 때만 리셋)
+                    _garlicTimer = 0f;
                 }
             }
 
-            // ── 진화: 성수 (360도 거대 폭발 펄스) ──
+            // ── 진화: 성수 (피흡 폭발 펄스, 범위 적당히) ──
             if (HasHolyWater) {
                 _hwTimer += dt;
                 if (_hwTimer >= 1.0f) {
-                    float rad = 250f * AccAreaMult; // 압도적 범위
+                    // 버그2 수정: 항상 타이머 리셋 (적 유무/피해 여부와 무관)
+                    _hwTimer = 0f;
+                    float rad = 100f * AccAreaMult;
+                    float totalHeal = 0f;
                     foreach (var e in enemies) {
                         if (!e.IsDead && Vector2.Distance(player.Position, e.Position) <= rad) {
-                            e.HP -= 150f * AccDamageMult; e.HitTimer = 0.2f;
+                            float dmg = 150f * AccDamageMult;
+                            e.HP -= dmg; e.MeleeHitTimer = 0.2f;
                             Vector2 d = GetDir(player.Position, e.Position); e.KnockbackDir = d; e.KnockbackSpeed = 300f;
-                            damageTexts.Add(new DamageText { Position = e.Position, Damage = 150f * AccDamageMult });
+                            damageTexts.Add(new DamageText { Position = e.Position, Damage = dmg });
+                            totalHeal += dmg * 0.08f; // 가한 피해의 8% 피흡
                         }
                     }
-                    _hwTimer = 0f;
+                    if (totalHeal > 0) {
+                        float healed = Math.Min(totalHeal, player.MaxHP * 0.15f); // 최대 최대체력 15%까지만 회복
+                        player.HealHP(healed);
+                        damageTexts.Add(new DamageText { Position = player.Position, Damage = -healed });
+                    }
                 }
             }
 
@@ -195,26 +227,31 @@ namespace CombatSystem
                     float ang = OrbitalAngle + (i * ((float)Math.PI * 2 / (OrbitalCount + AccProjectileBonus)));
                     Vector2 orb = new Vector2(player.Position.X + (float)Math.Cos(ang) * rad, player.Position.Y + (float)Math.Sin(ang) * rad);
                     foreach (var e in enemies) {
-                        if (!e.IsDead && e.HitTimer <= 0 && Vector2.Distance(orb, e.Position) < 30f) {
-                            e.HP -= OrbitalDamage * AccDamageMult; e.HitTimer = 0.2f;
+                        if (!e.IsDead && e.OrbitalHitTimer <= 0 && Vector2.Distance(orb, e.Position) < 30f) {
+                            e.HP -= OrbitalDamage * AccDamageMult; e.OrbitalHitTimer = 0.2f;
                             damageTexts.Add(new DamageText { Position = e.Position, Damage = OrbitalDamage * AccDamageMult });
                         }
                     }
                 }
             }
 
-            // ── 진화: 블랙홀 (적 강제 흡입) ──
+            // ── 진화: 블랙홀 (빈틈 없이 연속 회전하는 구체 링) ──
             if (HasBlackHole) {
-                BlackHoleAngle += 2f * dt;
-                float rad = 150f * AccAreaMult;
-                foreach (var e in enemies) {
-                    if (!e.IsDead && Vector2.Distance(player.Position, e.Position) < rad) {
-                        Vector2 d = GetDir(player.Position, e.Position);
-                        // 역방향 넉백으로 플레이어 쪽으로 강제 흡입
-                        e.KnockbackDir = new Vector2(-d.X, -d.Y); e.KnockbackSpeed = 120f;
-                        if (e.HitTimer <= 0) {
-                            e.HP -= 50f * AccDamageMult; e.HitTimer = 0.2f;
-                            damageTexts.Add(new DamageText { Position = e.Position, Damage = 50f * AccDamageMult });
+                BlackHoleAngle += 3.5f * dt; // 빠르게 회전
+                float rad = 120f * AccAreaMult;
+                int orbCount = 12 + AccProjectileBonus * 2; // 12개 구체로 빈틈 없이 채움
+                for (int i = 0; i < orbCount; i++) {
+                    float ang = BlackHoleAngle + (i * ((float)Math.PI * 2 / orbCount));
+                    Vector2 orb = new Vector2(
+                        player.Position.X + (float)Math.Cos(ang) * rad,
+                        player.Position.Y + (float)Math.Sin(ang) * rad);
+                    foreach (var e in enemies) {
+                        if (!e.IsDead && e.OrbitalHitTimer <= 0 && Vector2.Distance(orb, e.Position) < 22f) {
+                            e.HP -= 60f * AccDamageMult; e.OrbitalHitTimer = 0.15f;
+                            // 블랙홀 흡입: 플레이어 방향으로 끌어당김
+                            Vector2 d = GetDir(player.Position, e.Position);
+                            e.KnockbackDir = new Vector2(-d.X, -d.Y); e.KnockbackSpeed = 150f;
+                            damageTexts.Add(new DamageText { Position = e.Position, Damage = 60f * AccDamageMult });
                         }
                     }
                 }
@@ -222,8 +259,9 @@ namespace CombatSystem
         }
 
         // 유틸 함수
+        // 버그6 수정: 타겟팅 거리는 고정값(400f) 사용. AccAreaMult는 '공격 범위'지 '탐색 거리'가 아님
         private Enemy GetNearest(Vector2 pos, List<Enemy> enemies) {
-            Enemy n = null; float min = 400f * AccAreaMult;
+            Enemy n = null; float min = 400f;
             foreach (var e in enemies) { if (e.IsDead) continue; float d = Vector2.Distance(pos, e.Position); if (d < min) { min = d; n = e; } }
             return n;
         }

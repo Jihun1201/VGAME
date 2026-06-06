@@ -7,13 +7,14 @@ using CombatSystem;
 using UpgradeLogic;
 using WeaponData;
 using FieldItem;
+using SaveData;
 
 namespace GameCore
 {
     public struct Vector2 { public float X; public float Y; public Vector2(float x, float y) { X = x; Y = y; } public static float Distance(Vector2 a, Vector2 b) { float dx = a.X - b.X; float dy = a.Y - b.Y; return (float)Math.Sqrt(dx * dx + dy * dy); } }
 
-    // ★ ChestReward (상자 보상 연출 화면) 추가
-    public enum GameState { Title, Playing, LevelUp, ChestReward, Pause, GameOver, Victory }
+    // Shop = 타이틀 상점, RecipeBook = 조합표
+    public enum GameState { Title, Shop, RecipeBook, Playing, LevelUp, ChestReward, Pause, GameOver, Victory }
 
     public class Engine
     {
@@ -27,18 +28,37 @@ namespace GameCore
         private List<DropItem> _dropItems  = new List<DropItem>();
         private List<MapChest> _mapChests  = new List<MapChest>();
         
-        // ★ 상자 보상 메시지를 담아둘 리스트
+        // 상자 보상 메시지를 담아둘 리스트
         private List<string> _chestRewards = new List<string>();
-
         private float _chestAnimTimer = 0f;
+
+        // ★ 세이브 데이터 (타이틀 상점 / 영구 골드)
+        private SaveFile _save;
+
+        // ★ 타이틀 상점 커서
+        private int _shopCursor = 0;
+
+        // ★ 조합표 탭 (0=무기조합, 1=진화조합)
+        private int _recipePage = 0;
 
         private Random _rand = new Random();
 
         private GameState _currentState = GameState.Title;
         private float _spawnTimer  = 0f;
         private float _survivalTime= 0f;
-        private bool  _boss1Spawned= false;
-        private bool  _boss2Spawned= false;
+
+        // 중간보스 스폰 플래그 (1:00 / 2:00 / 2:30 / 3:00 / 3:30 / 4:00 / 4:30)
+        private bool _midBoss1Spawned = false; // 1:00
+        private bool _midBoss2Spawned = false; // 2:00
+        private bool _midBoss3Spawned = false; // 2:30
+        private bool _midBoss4Spawned = false; // 3:00
+        private bool _midBoss5Spawned = false; // 3:30
+        private bool _midBoss6Spawned = false; // 4:00
+        private bool _midBoss7Spawned = false; // 4:30
+
+        // 최종 보스
+        private bool  _finalBossSpawned = false;
+        private Enemy _finalBoss        = null;
 
         private List<DamageText> _damageTexts;
         private Camera2D _camera;
@@ -54,6 +74,9 @@ namespace GameCore
 
         public Engine()
         {
+            // ★ 세이브 파일 로드 (없으면 새로 생성)
+            _save = SaveFile.Load();
+
             _player      = new Player { Position = new Vector2(400, 300) };
             _enemies     = new List<Enemy>();
             _weapon      = new Weapon();
@@ -70,8 +93,6 @@ namespace GameCore
             _camera = new Camera2D();
             _camera.Offset = new System.Numerics.Vector2(800f / 2f, 600f / 2f);
             _camera.Zoom   = 1.0f;
-
-            
         }
 
         public void Run()
@@ -111,10 +132,47 @@ namespace GameCore
         {
             if (_currentState == GameState.Title)
             {
-                if (Raylib.IsKeyPressed(KeyboardKey.Enter)) _currentState = GameState.Playing;
+                if (Raylib.IsKeyPressed(KeyboardKey.Enter)) StartGame();
+                if (Raylib.IsKeyPressed(KeyboardKey.S)) { _shopCursor = 0; _currentState = GameState.Shop; }
+                if (Raylib.IsKeyPressed(KeyboardKey.R)) { _recipePage = 0; _currentState = GameState.RecipeBook; }
                 return;
             }
-            if (_currentState == GameState.GameOver || _currentState == GameState.Victory) return;
+
+            // ── 타이틀 상점 ──
+            if (_currentState == GameState.Shop)
+            {
+                var upgrades = MetaTable.All;
+                if (Raylib.IsKeyPressed(KeyboardKey.Escape)) _currentState = GameState.Title;
+                if (Raylib.IsKeyPressed(KeyboardKey.Up))   _shopCursor = (_shopCursor - 1 + upgrades.Count) % upgrades.Count;
+                if (Raylib.IsKeyPressed(KeyboardKey.Down)) _shopCursor = (_shopCursor + 1) % upgrades.Count;
+                if (Raylib.IsKeyPressed(KeyboardKey.Enter) || Raylib.IsKeyPressed(KeyboardKey.Z))
+                {
+                    var def = upgrades[_shopCursor];
+                    _save.BuyUpgrade(def.Type);
+                    _save.Save();
+                }
+                return;
+            }
+
+            // ── 조합표 ──
+            if (_currentState == GameState.RecipeBook)
+            {
+                if (Raylib.IsKeyPressed(KeyboardKey.Escape)) _currentState = GameState.Title;
+                if (Raylib.IsKeyPressed(KeyboardKey.Left) || Raylib.IsKeyPressed(KeyboardKey.Right))
+                    _recipePage = 1 - _recipePage;
+                return;
+            }
+            if (_currentState == GameState.GameOver || _currentState == GameState.Victory)
+            {
+                if (Raylib.IsKeyPressed(KeyboardKey.R))
+                {
+                    // ★ 게임 종료 시 획득 골드를 영구 골드로 정산
+                    _save.EarnGold(_player.Gold);
+                    _save.Save();
+                    _currentState = GameState.Title;
+                }
+                return;
+            }
             if (_currentState == GameState.Pause)
             {
                 // ESC를 다시 누르면 게임으로 복귀
@@ -143,8 +201,15 @@ namespace GameCore
                     var card = _cardDeck.SelectCard(chosen);
                     if (card != null)
                     {
-                        if (card.CardType == CardType.Weapon) _weapon.ApplyLevel(card.WeaponType, card.NextLevel);
-                        else _weapon.ApplyAccessory(card.AccessoryType, card.NextLevel, _player);
+                        if (card.IsBonus)
+                        {
+                            // ★ 풀강 보너스 카드 즉시 적용
+                            ApplyBonusCard(card);
+                        }
+                        else if (card.CardType == CardType.Weapon)
+                            _weapon.ApplyLevel(card.WeaponType, card.NextLevel);
+                        else
+                            _weapon.ApplyAccessory(card.AccessoryType, card.NextLevel, _player);
                     }
                     ResumeGame();
                 }
@@ -163,7 +228,6 @@ namespace GameCore
             }
 
             _survivalTime += dt;
-            if (_survivalTime >= 300f) { _currentState = GameState.Victory; return; }
 
             _player.Update(dt);
             _camera.Target = new System.Numerics.Vector2(_player.Position.X, _player.Position.Y);
@@ -182,22 +246,71 @@ namespace GameCore
                     { _player.CurrentHP -= e.Damage * dt; _player.HitTimer = 0.1f; }
                 }
             }
-            if (_player.IsDead) { _player.CurrentHP = 0; _currentState = GameState.GameOver; return; }
-
-            float spawnDelay = Math.Max(0.08f, 0.4f - (_survivalTime / 300f) * 0.32f);
-            _spawnTimer += dt;
-            if (_spawnTimer >= spawnDelay)
+            if (_player.IsDead)
             {
-                _spawnTimer = 0f;
-                float sx = _player.Position.X + (_rand.Next(0,2)==0 ? _rand.Next(-450,-400) : _rand.Next(400,450));
-                float sy = _player.Position.Y + (_rand.Next(0,2)==0 ? _rand.Next(-350,-300) : _rand.Next(300,450));
-                _enemies.Add(new Enemy { Position = new Vector2(sx, sy), HP = 10 + (_survivalTime/60f)*5f });
+                // ★ 메타 부활 처리
+                if (_player.ReviveCount > 0)
+                {
+                    _player.ReviveCount--;
+                    _player.CurrentHP = _player.MaxHP * 0.30f;
+                    _player.ShieldTimer = 3f; // 부활 후 3초 무적
+                    _damageTexts.Add(new DamageText { Position = _player.Position, Damage = -(_player.MaxHP * 0.30f) });
+                }
+                else
+                {
+                    _player.CurrentHP = 0;
+                    _currentState = GameState.GameOver;
+                    return;
+                }
             }
 
-            if (_survivalTime >= 90f  && !_boss1Spawned)
-            { _boss1Spawned = true; _enemies.Add(new Enemy { Position = new Vector2(_player.Position.X+450, _player.Position.Y), HP=300,Damage=20,Speed=110,Scale=6f,TintColor=Color.Purple,IsBoss=true }); }
-            if (_survivalTime >= 180f && !_boss2Spawned)
-            { _boss2Spawned = true; _enemies.Add(new Enemy { Position = new Vector2(_player.Position.X-450, _player.Position.Y), HP=800,Damage=30,Speed=130,Scale=8f,TintColor=Color.DarkPurple,IsBoss=true }); }
+            // ── 5분: 잡몹 스폰 중지 + 최종 보스 소환 ──
+            if (_survivalTime >= 300f && !_finalBossSpawned)
+            {
+                _finalBossSpawned = true;
+                _enemies.RemoveAll(e => !e.IsBoss); // 잡몹만 제거
+                _finalBoss = new Enemy
+                {
+                    Position  = new Vector2(_player.Position.X + 500, _player.Position.Y),
+                    HP        = 8000f, Damage = 40f, Speed = 80f,
+                    Scale     = 12f,
+                    TintColor = new Color(255, 50, 50, 255),
+                    IsBoss    = true
+                };
+                _enemies.Add(_finalBoss);
+            }
+
+            // 최종 보스 처치 → 승리
+            if (_finalBossSpawned && (_finalBoss == null || _finalBoss.IsDead))
+            { _currentState = GameState.Victory; return; }
+
+            // 잡몹 스폰 (5분 이후엔 스폰 안 함)
+            if (!_finalBossSpawned)
+            {
+                float spawnDelay = Math.Max(0.08f, 0.4f - (_survivalTime / 300f) * 0.32f);
+                _spawnTimer += dt;
+                if (_spawnTimer >= spawnDelay)
+                {
+                    _spawnTimer = 0f;
+                    float sx = _player.Position.X + (_rand.Next(0,2)==0 ? _rand.Next(-450,-400) : _rand.Next(400,450));
+                    float sy = _player.Position.Y + (_rand.Next(0,2)==0 ? _rand.Next(-350,-300) : _rand.Next(300,450));
+                    _enemies.Add(new Enemy { Position = new Vector2(sx, sy), HP = 10 + (_survivalTime/60f)*5f });
+                }
+            }
+
+            // ── 중간보스 스폰 (1:00 ~ 4:30) ──
+            int bossSign = (_rand.Next(0,2)==0) ? 1 : -1;
+            Vector2 BossPos() => new Vector2(
+                _player.Position.X + bossSign * _rand.Next(420, 500),
+                _player.Position.Y + _rand.Next(-80, 80));
+
+            if (_survivalTime >= 60f  && !_midBoss1Spawned) { _midBoss1Spawned=true; _enemies.Add(new Enemy { Position=BossPos(), HP=400,  Damage=18, Speed=105, Scale=5f, TintColor=Color.Purple,                   IsBoss=true }); }
+            if (_survivalTime >= 120f && !_midBoss2Spawned) { _midBoss2Spawned=true; _enemies.Add(new Enemy { Position=BossPos(), HP=700,  Damage=22, Speed=115, Scale=6f, TintColor=Color.DarkPurple,                IsBoss=true }); }
+            if (_survivalTime >= 150f && !_midBoss3Spawned) { _midBoss3Spawned=true; _enemies.Add(new Enemy { Position=BossPos(), HP=1000, Damage=25, Speed=120, Scale=6f, TintColor=new Color(255,100,  0,255),      IsBoss=true }); }
+            if (_survivalTime >= 180f && !_midBoss4Spawned) { _midBoss4Spawned=true; _enemies.Add(new Enemy { Position=BossPos(), HP=1400, Damage=28, Speed=125, Scale=7f, TintColor=new Color(200,  0,200,255),      IsBoss=true }); }
+            if (_survivalTime >= 210f && !_midBoss5Spawned) { _midBoss5Spawned=true; _enemies.Add(new Enemy { Position=BossPos(), HP=1800, Damage=30, Speed=130, Scale=7f, TintColor=new Color(255, 50, 50,255),      IsBoss=true }); }
+            if (_survivalTime >= 240f && !_midBoss6Spawned) { _midBoss6Spawned=true; _enemies.Add(new Enemy { Position=BossPos(), HP=2500, Damage=33, Speed=135, Scale=8f, TintColor=new Color( 50, 50,255,255),      IsBoss=true }); }
+            if (_survivalTime >= 270f && !_midBoss7Spawned) { _midBoss7Spawned=true; _enemies.Add(new Enemy { Position=BossPos(), HP=3500, Damage=36, Speed=140, Scale=9f, TintColor=new Color(255,215,  0,255),      IsBoss=true }); }
 
             foreach (var e in _enemies) e.Update(dt, _player.Position);
             _weapon.Update(dt, _player, _enemies, _damageTexts);
@@ -301,8 +414,94 @@ namespace GameCore
 
         private void ResumeGame() { _levelSystem.IsLevelUpReady = false; _currentState = GameState.Playing; }
 
+        // ★ 보너스 카드 즉시 효과 적용 (풀강 레벨업 대체 카드)
+        private void ApplyBonusCard(UpgradeCard card)
+        {
+            switch (card.BonusType)
+            {
+                case BonusCardType.HealSmall:
+                    _player.HealHP(_player.MaxHP * 0.25f);
+                    _damageTexts.Add(new DamageText { Position = _player.Position, Damage = -(_player.MaxHP * 0.25f) });
+                    break;
+                case BonusCardType.HealLarge:
+                    _player.HealHP(_player.MaxHP * 0.60f);
+                    _damageTexts.Add(new DamageText { Position = _player.Position, Damage = -(_player.MaxHP * 0.60f) });
+                    break;
+                case BonusCardType.GoldSmall:
+                    _player.Gold += 80;
+                    break;
+                case BonusCardType.GoldLarge:
+                    _player.Gold += 200;
+                    break;
+                case BonusCardType.Shield:
+                    _player.ShieldTimer = 5f;
+                    break;
+            }
+        }
+
+        // ★ 게임 시작 (메타 업그레이드 스탯 적용)
+        private void StartGame()
+        {
+            _player      = new Player { Position = new Vector2(400, 300) };
+            _enemies     = new List<Enemy>();
+            _weapon      = new Weapon();
+            _gems        = new List<ExpGem>();
+            _levelSystem = new LevelSystem();
+            _damageTexts = new List<DamageText>();
+            _dropItems   = new List<DropItem>();
+            _mapChests   = new List<MapChest>();
+            _chestRewards= new List<string>();
+
+            _cardDeck = new CardDeck();
+            _cardDeck.InitStartingWeapons(hasStaff: true, hasGarlic: false, hasOrbital: false);
+            _weapon.ApplyLevel(WeaponType.Staff, 1);
+
+            // ★ 메타 업그레이드 스탯 적용
+            var def_hp    = MetaTable.Get(MetaUpgradeType.MaxHP);
+            var def_spd   = MetaTable.Get(MetaUpgradeType.MoveSpeed);
+            var def_dmg   = MetaTable.Get(MetaUpgradeType.StartDamage);
+            var def_gold  = MetaTable.Get(MetaUpgradeType.StartGold);
+            var def_exp   = MetaTable.Get(MetaUpgradeType.ExpBonus);
+            var def_rev   = MetaTable.Get(MetaUpgradeType.Revive);
+
+            int lvHP   = _save.GetMetaLevel(MetaUpgradeType.MaxHP);
+            int lvSpd  = _save.GetMetaLevel(MetaUpgradeType.MoveSpeed);
+            int lvDmg  = _save.GetMetaLevel(MetaUpgradeType.StartDamage);
+            int lvGold = _save.GetMetaLevel(MetaUpgradeType.StartGold);
+            int lvExp  = _save.GetMetaLevel(MetaUpgradeType.ExpBonus);
+            int lvRev  = _save.GetMetaLevel(MetaUpgradeType.Revive);
+
+            float bonusHP   = def_hp.TotalValue(lvHP);
+            float bonusSpd  = def_spd.TotalValue(lvSpd);
+            float bonusDmg  = def_dmg.TotalValue(lvDmg);   // AccDamageMult에 더함
+            float bonusGold = def_gold.TotalValue(lvGold);
+            _levelSystem.ExpMult = 1f + def_exp.TotalValue(lvExp);
+            _player.ReviveCount  = (int)def_rev.TotalValue(lvRev);
+
+            _player.MaxHP    += bonusHP;
+            _player.CurrentHP = _player.MaxHP;
+            _player.Speed    += bonusSpd;
+            _weapon.AccDamageMult += bonusDmg;
+            _player.Gold      = (int)bonusGold;
+
+            _spawnTimer       = 0f;
+            _survivalTime     = 0f;
+            _chestAnimTimer   = 0f;
+
+            _midBoss1Spawned = false; _midBoss2Spawned = false; _midBoss3Spawned = false;
+            _midBoss4Spawned = false; _midBoss5Spawned = false; _midBoss6Spawned = false;
+            _midBoss7Spawned = false;
+            _finalBossSpawned = false; _finalBoss = null;
+
+            _currentState = GameState.Playing;
+        }
+
         private void Render()
         {
+            // ★ 상점/조합표는 별도 렌더 함수에서 완전 독립 처리
+            if (_currentState == GameState.Shop)       { RenderShop();       return; }
+            if (_currentState == GameState.RecipeBook) { RenderRecipeBook(); return; }
+
             Raylib.BeginDrawing();
 
             if (_currentState == GameState.Title)
@@ -320,7 +519,12 @@ namespace GameCore
                     Raylib.DrawTexturePro(_texTitleIdle, src, new Rectangle(400,300,frameW*scale,frameH*scale),       origin, 0f, Color.White);
                 }
                 Raylib.DrawText("ASDF SURVIVOR", 140, 50, 60, Color.Gold);
-                if ((int)(Raylib.GetTime()*2)%2==0) Raylib.DrawText("- Press ENTER to Start -", 220, 500, 28, Color.White);
+                if ((int)(Raylib.GetTime()*2)%2==0) Raylib.DrawText("- Press ENTER to Start -", 220, 460, 28, Color.White);
+
+                // ★ 타이틀 버튼 안내
+                DrawTextKR($"[ S ] 상점  (영구 골드: {_save.PermanentGold}G)", 260, 500, 20, Color.Gold);
+                DrawTextKR("[ R ] 조합표", 340, 530, 20, new Color(180, 220, 255, 255));
+
                 Raylib.EndDrawing(); return;
             }
 
@@ -356,9 +560,9 @@ namespace GameCore
 
             // 진화 무기 및 기본 무기 이펙트 렌더링
             if (_weapon.HasGarlic)
-                Raylib.DrawCircle((int)_player.Position.X,(int)_player.Position.Y,(int)(_weapon.GarlicRadius * _weapon.AccAreaMult),new Color(150,255,150,80));
+                Raylib.DrawCircle((int)_player.Position.X,(int)_player.Position.Y,(int)_weapon.GarlicRadius,new Color(150,255,150,80));
             if (_weapon.HasHolyWater)
-                Raylib.DrawCircle((int)_player.Position.X,(int)_player.Position.Y,(int)(250f * _weapon.AccAreaMult),new Color(255,255,200,60));
+                Raylib.DrawCircle((int)_player.Position.X,(int)_player.Position.Y,(int)(100f * _weapon.AccAreaMult),new Color(255,255,200,60));
             if (_weapon.HasOrbital)
                 for (int i=0;i<_weapon.OrbitalCount + _weapon.AccProjectileBonus;i++)
                 {
@@ -369,11 +573,21 @@ namespace GameCore
                         8, new Color(0,255,255,255));
                 }
             if (_weapon.HasBlackHole)
-                for (int i = 0; i < 5; i++)
+            {
+                float rad = 120f * _weapon.AccAreaMult;
+                int orbCount = 12 + _weapon.AccProjectileBonus * 2;
+                for (int i = 0; i < orbCount; i++)
                 {
-                    float ang = _weapon.BlackHoleAngle + (i * 1.2f);
-                    Raylib.DrawCircle((int)(_player.Position.X+Math.Cos(ang)*(_weapon.AccAreaMult*100f)), (int)(_player.Position.Y+Math.Sin(ang)*(_weapon.AccAreaMult*100f)), 10, new Color(100,0,150,200));
+                    float ang = _weapon.BlackHoleAngle + (i * ((float)Math.PI * 2 / orbCount));
+                    Raylib.DrawCircle(
+                        (int)(_player.Position.X + Math.Cos(ang) * rad),
+                        (int)(_player.Position.Y + Math.Sin(ang) * rad),
+                        10, new Color(100, 0, 200, 230));
                 }
+                // 중심부 흡입 이펙트 (반투명 원)
+                Raylib.DrawCircle((int)_player.Position.X, (int)_player.Position.Y,
+                    (int)rad, new Color(30, 0, 80, 40));
+            }
 
             foreach (var p in _weapon.Projectiles)
                 Raylib.DrawCircle((int)p.Position.X,(int)p.Position.Y, p.IsPiercing ? 8 : 5, p.IsPiercing ? Color.Orange : Color.Yellow);
@@ -443,23 +657,46 @@ namespace GameCore
             int min=(int)_survivalTime/60, sec=(int)_survivalTime%60;
             Raylib.DrawText($"{min:D2}:{sec:D2}", 360,25,28,Color.White);
 
+            // 최종 보스 전투 중 경고 표시
+            if (_finalBossSpawned && _finalBoss != null && !_finalBoss.IsDead)
+            {
+                float pulse = (float)(0.5 + 0.5 * Math.Sin(Raylib.GetTime() * 4));
+                Color warnColor = new Color((byte)255, (byte)(int)(50*pulse), (byte)0, (byte)255);
+                DrawTextKR("⚠ 최종 보스 출현!", 280, 50, 26, warnColor);
+                // 최종 보스 HP바
+                float bossHpR = Math.Max(0, _finalBoss.HP / 8000f);
+                Raylib.DrawRectangle(100, 575, 600, 16, new Color(60, 0, 0, 200));
+                Raylib.DrawRectangle(100, 575, (int)(600*bossHpR), 16, new Color(220, 30, 30, 255));
+                Raylib.DrawRectangleLines(100, 575, 600, 16, Color.Red);
+                DrawTextKR("FINAL BOSS", 360, 555, 16, Color.Red);
+            }
+
             if (_currentState == GameState.LevelUp) RenderLevelUpCards();
             if (_currentState == GameState.ChestReward) RenderChestReward();
 
             if (_currentState == GameState.GameOver)
             {
                 Raylib.DrawRectangle(0,0,800,600,new Color(150,0,0,200));
-                Raylib.DrawText("YOU DIED",  260,240,60,Color.Red);
-                Raylib.DrawText("Game Over", 340,320,24,Color.LightGray);
+                Raylib.DrawText("YOU DIED",  260,200,60,Color.Red);
+                Raylib.DrawText("Game Over", 340,280,24,Color.LightGray);
+                Raylib.DrawRectangle(280, 360, 240, 50, new Color(200, 50, 50, 220));
+                Raylib.DrawRectangleLines(280, 360, 240, 50, Color.White);
+                DrawTextKR("[ R ] 타이틀로", 308, 374, 22, Color.White);
+                DrawTextKR($"획득 골드 {_player.Gold}G → 영구 보관!", 230, 430, 18, Color.Gold);
             }
             if (_currentState == GameState.Victory)
             {
                 Raylib.DrawRectangle(0,0,800,600,new Color(0,100,255,200));
-                Raylib.DrawText("VICTORY!", 260,240,60,Color.Gold);
-                Raylib.DrawText($"Survived 5 Minutes  /  Gold: {_player.Gold}", 180,320,24,Color.White);
+                Raylib.DrawText("VICTORY!", 260,180,60,Color.Gold);
+                DrawTextKR($"5분 생존 성공!  골드: {_player.Gold}", 200,270,26,Color.White);
+                DrawTextKR("최종 보스를 처치했습니다!", 230,310,22,new Color(255,215,0,255));
+                Raylib.DrawRectangle(280, 380, 240, 50, new Color(50, 150, 50, 220));
+                Raylib.DrawRectangleLines(280, 380, 240, 50, Color.Gold);
+                DrawTextKR("[ R ] 타이틀로", 308, 394, 22, Color.White);
+                DrawTextKR($"획득 골드 {_player.Gold}G → 영구 보관!", 230, 450, 18, Color.Gold);
             }
 
-            // ★ [신규 추가] 일시 정지 메뉴 렌더링
+            // ★ 일시 정지 메뉴 렌더링
             if (_currentState == GameState.Pause) RenderPauseMenu();
 
             Raylib.EndDrawing();
@@ -647,6 +884,195 @@ namespace GameCore
                 if ((int)(Raylib.GetTime() * 4) % 2 == 0) 
                     Raylib.DrawRectangleLines(300, 505, 200, 40, Color.Gold);
             }
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // ★ 타이틀 상점 렌더
+        // ─────────────────────────────────────────────────────────────
+        private void RenderShop()
+        {
+            Raylib.BeginDrawing();
+            Raylib.ClearBackground(new Color(15, 15, 28, 255));
+
+            // 제목
+            DrawTextKR("★  상  점  ★", 280, 25, 38, Color.Gold);
+            DrawTextKR($"보유 골드: {_save.PermanentGold} G", 560, 32, 22, Color.Gold);
+            Raylib.DrawLine(40, 78, 760, 78, new Color(100, 100, 80, 200));
+
+            var upgrades = MetaTable.All;
+            int rowH = 74, startY = 95;
+
+            for (int i = 0; i < upgrades.Count; i++)
+            {
+                var def   = upgrades[i];
+                int lv    = _save.GetMetaLevel(def.Type);
+                bool maxed = lv >= def.MaxLevel;
+                bool sel   = (i == _shopCursor);
+                int  cy    = startY + i * rowH;
+
+                // 배경
+                Color bg = sel ? new Color(50, 50, 80, 230) : new Color(25, 25, 40, 200);
+                Raylib.DrawRectangle(40, cy, 720, rowH - 6, bg);
+                Color border = sel ? Color.Gold : new Color(70, 70, 100, 200);
+                Raylib.DrawRectangleLines(40, cy, 720, rowH - 6, border);
+
+                // 이름 + 설명
+                Color nameCol = maxed ? Color.DarkGray : (sel ? Color.White : Color.LightGray);
+                DrawTextKR((maxed ? "[MAX] " : "") + def.Name, 60, cy + 8, 22, nameCol);
+                DrawTextKR(def.Description, 60, cy + 34, 16, new Color(160, 160, 160, 255));
+
+                // 레벨 칸
+                DrawLevelSquares(470, cy + 18, lv, def.MaxLevel);
+
+                // 비용 / MAX
+                if (maxed)
+                {
+                    DrawTextKR("MAX", 640, cy + 18, 22, Color.DarkGray);
+                }
+                else
+                {
+                    int cost = def.Cost(lv);
+                    bool canBuy = _save.PermanentGold >= cost;
+                    Color costCol = canBuy ? Color.Gold : Color.Red;
+                    DrawTextKR($"{cost} G", 630, cy + 12, 20, costCol);
+                    DrawTextKR("ENTER", 630, cy + 36, 14, new Color(150, 150, 150, 200));
+                }
+
+                // 효과 미리보기
+                string preview = GetMetaEffectPreview(def, lv);
+                if (preview != "") DrawTextKR(preview, 470, cy + 38, 14, new Color(120, 200, 120, 255));
+            }
+
+            // 조작 안내
+            Raylib.DrawLine(40, 95 + upgrades.Count * rowH, 760, 95 + upgrades.Count * rowH, new Color(80,80,80,200));
+            DrawTextKR("↑↓ 선택   ENTER 구매   ESC 타이틀", 240, 560, 20, Color.Gray);
+
+            Raylib.EndDrawing();
+        }
+
+        private string GetMetaEffectPreview(MetaUpgradeDef def, int currentLevel)
+        {
+            if (currentLevel >= def.MaxLevel) return $"최대 효과: +{def.TotalValue(def.MaxLevel)}";
+            float next = def.Values[currentLevel];
+            return def.Type switch {
+                MetaUpgradeType.MaxHP       => $"다음: 최대HP +{next:F0}",
+                MetaUpgradeType.MoveSpeed   => $"다음: 이동속도 +{next:F0}",
+                MetaUpgradeType.StartDamage => $"다음: 데미지 +{next*100:F0}%",
+                MetaUpgradeType.StartGold   => $"다음: 시작골드 +{next:F0}G",
+                MetaUpgradeType.ExpBonus    => $"다음: 경험치 +{next*100:F0}%",
+                MetaUpgradeType.Revive      => $"다음: 부활 +{next:F0}회",
+                _ => ""
+            };
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // ★ 조합표 렌더
+        // ─────────────────────────────────────────────────────────────
+        private void RenderRecipeBook()
+        {
+            Raylib.BeginDrawing();
+            Raylib.ClearBackground(new Color(15, 15, 28, 255));
+
+            // 탭 헤더
+            string tab0 = "무기 & 장신구";
+            string tab1 = "진화 조합";
+            Color col0 = _recipePage == 0 ? Color.Gold  : Color.DarkGray;
+            Color col1 = _recipePage == 1 ? Color.Gold  : Color.DarkGray;
+            Raylib.DrawRectangle(40,  20, 340, 44, _recipePage==0 ? new Color(50,50,80,255) : new Color(20,20,30,255));
+            Raylib.DrawRectangle(420, 20, 340, 44, _recipePage==1 ? new Color(50,50,80,255) : new Color(20,20,30,255));
+            DrawTextKR(tab0, 100, 30, 24, col0);
+            DrawTextKR(tab1, 490, 30, 24, col1);
+            Raylib.DrawLine(40, 66, 760, 66, Color.DarkGray);
+
+            if (_recipePage == 0) RenderRecipeWeapons();
+            else                  RenderRecipeEvolution();
+
+            DrawTextKR("← → 탭 전환   ESC 타이틀", 270, 565, 18, Color.Gray);
+            Raylib.EndDrawing();
+        }
+
+        private void RenderRecipeWeapons()
+        {
+            // 무기 4종 설명
+            (string name, string desc, string stats)[] weapons = {
+                ("지팡이",   "가장 기본적인 마법 무기. 가장 가까운 적에게 투사체를 발사합니다.",
+                             "Lv1: DMG15 / Lv3: 투사체2개 / Lv5: 투사체3개, DMG55"),
+                ("마늘",     "주변의 모든 적에게 지속 피해를 줍니다. 투사체가 없어 범위 장신구(반지)의 영향을 받지 않습니다.",
+                             "Lv1: DMG5 R70 / Lv3: R95 / Lv5: DMG28 R130"),
+                ("궤도구체", "플레이어 주위를 선회하는 구체. 범위 장신구(반지)로 궤도 반경이 넓어집니다.",
+                             "Lv1: 구체2개 / Lv3: 구체3개 / Lv5: 구체4개, DMG55"),
+                ("도끼",     "포물선으로 날아오르는 도끼. 무한 관통으로 여러 적을 동시에 타격합니다.",
+                             "Lv1: DMG25 x1 / Lv3: x2 / Lv5: DMG80 x3"),
+            };
+
+            (string name, string desc, string effect)[] accs = {
+                ("날개",   "투사체 속도 → 이동속도 → 투사체 개수 순서로 강화됩니다.",   "Lv3/5: 투사체 개수 +1/+2"),
+                ("갑옷",   "레벨업마다 최대 체력이 증가하고 즉시 회복됩니다.",           "Lv5: 최대 체력 +130 합계"),
+                ("반지",   "모든 무기의 공격 범위를 확대합니다. (마늘 제외)",             "Lv5: 범위 +60%"),
+                ("장갑",   "모든 무기의 데미지를 영구적으로 배율 증가시킵니다.",         "Lv5: 데미지 +60%"),
+            };
+
+            int wy = 80, rowH = 60;
+            DrawTextKR("▶ 무기", 50, wy, 20, new Color(100,160,255,255));
+            wy += 26;
+
+            foreach (var w in weapons)
+            {
+                Raylib.DrawRectangle(40, wy, 720, rowH - 4, new Color(25, 25, 45, 220));
+                Raylib.DrawRectangleLines(40, wy, 720, rowH - 4, new Color(60,80,120,200));
+                DrawTextKR(w.name, 55,  wy + 6,  18, Color.White);
+                DrawTextKR(w.desc, 55,  wy + 28, 13, new Color(180,180,180,255));
+                DrawTextKR(w.stats, 360, wy + 17, 13, new Color(255,220,80,255));
+                wy += rowH;
+            }
+
+            wy += 10;
+            DrawTextKR("▶ 장신구", 50, wy, 20, new Color(255,160,80,255));
+            wy += 26;
+
+            foreach (var a in accs)
+            {
+                Raylib.DrawRectangle(40, wy, 720, rowH - 4, new Color(40, 25, 25, 220));
+                Raylib.DrawRectangleLines(40, wy, 720, rowH - 4, new Color(120,70,40,200));
+                DrawTextKR(a.name,   55,  wy + 6,  18, Color.White);
+                DrawTextKR(a.desc,   55,  wy + 28, 13, new Color(180,180,180,255));
+                DrawTextKR(a.effect, 440, wy + 17, 13, new Color(255,220,80,255));
+                wy += rowH;
+            }
+        }
+
+        private void RenderRecipeEvolution()
+        {
+            DrawTextKR("무기 Lv.5 + 장신구 Lv.5 = 진화 무기!", 160, 78, 20, new Color(255,220,80,255));
+            DrawTextKR("보스 처치 상자를 열면 자동으로 진화합니다.", 150, 104, 17, new Color(160,160,160,255));
+
+            (string weapon, string acc, string result, string desc, Color color)[] evos = {
+                ("지팡이 Lv.5", "날개 Lv.5",  "마법진",   "전방 3방향 무한 관통빔. 냉혹한 DPS형 진화체.",          new Color(80,140,255,255)),
+                ("마늘 Lv.5",   "갑옷 Lv.5",  "성수",     "광역 폭발 + 피흡. 적을 흡수하여 체력을 회복합니다.",    new Color(80,220,120,255)),
+                ("궤도구체 Lv.5","반지 Lv.5", "블랙홀",   "12개 구체 고속 회전 + 적 흡입. 범위 최강.",              new Color(180,80,255,255)),
+                ("도끼 Lv.5",   "장갑 Lv.5",  "도끼폭풍", "8방향 도끼 투척. 전방위 무한 관통 대미지.",             new Color(255,140,40,255)),
+            };
+
+            int ey = 140, rowH = 88;
+            foreach (var evo in evos)
+            {
+                Raylib.DrawRectangle(40, ey, 720, rowH - 6, new Color(20, 20, 35, 220));
+                Raylib.DrawRectangleLines(40, ey, 720, rowH - 6, evo.color);
+
+                // 재료
+                DrawTextKR(evo.weapon, 60,  ey + 10, 18, Color.LightGray);
+                DrawTextKR("+",        230, ey + 10, 22, Color.Gray);
+                DrawTextKR(evo.acc,    260, ey + 10, 18, Color.LightGray);
+                DrawTextKR("=",        410, ey + 10, 22, Color.Gray);
+
+                // 결과
+                DrawTextKR("★ " + evo.result, 440, ey + 6,  22, evo.color);
+                DrawTextKR(evo.desc,           60,  ey + 44, 15, new Color(180,180,180,255));
+
+                ey += rowH;
+            }
+
+            DrawTextKR("※ 진화한 원본 무기는 슬롯에서 제거되고 진화 무기로 교체됩니다.", 60, ey + 10, 15, new Color(120,120,120,255));
         }
 
         private void DrawTextKR(string text, int x, int y, int fontSize, Color color)
