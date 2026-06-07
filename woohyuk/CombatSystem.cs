@@ -37,10 +37,13 @@ namespace CombatSystem
         public bool HasAxe = false; public float AxeDamage = 25f; public int AxeCount = 1; public float AxeSpeed = 400f; private float _axeTimer = 0f;
         
         // 진화 무기
-        public bool HasMagicCircle = false; private float _mcTimer = 0f; // 마법진 (관통 빔)
-        public bool HasHolyWater = false; private float _hwTimer = 0f;   // 성수 (거대 폭발 펄스)
-        public bool HasBlackHole = false; public float BlackHoleAngle = 0f; // 블랙홀 (적 흡입)
-        public bool HasAxeStorm = false; private float _asTimer = 0f;    // 도끼폭풍 (8방향 투척)
+        public bool HasMagicCircle     = false; private float _mcTimer  = 0f; // 헬파이어 (지팡이 진화 — 관통 빔)
+        public bool HasHellFire        = false; private float _hwTimer  = 0f; // 마법진 (영창 진화 — 폭발 피흡)
+        public bool HasBlackHole       = false; public float BlackHoleAngle = 0f;
+        public bool HasAxeStorm        = false; private float _asTimer  = 0f;
+        // 표창 / 무한표창
+        public bool HasShuriken        = false; public float ShurikenDamage = 18f; public int ShurikenCount = 1; private float _shurikenTimer = 0f; public float ShurikenCooldown = 1.2f;
+        public bool HasInfiniteShuriken= false; private float _isTimer  = 0f;
 
         public List<Projectile> Projectiles = new List<Projectile>();
 
@@ -48,10 +51,11 @@ namespace CombatSystem
         {
             var data = WeaponTable.GetWeapon(type, level);
             switch (type) {
-                case WeaponType.Staff: HasStaff = true; StaffDamage = data.StaffDamage; StaffCooldown = data.StaffCooldown; StaffCount = data.StaffProjectileCount; break;
-                case WeaponType.Garlic: HasGarlic = true; GarlicDamage = data.GarlicDamage; GarlicRadius = data.GarlicRadius; GarlicCooldown = data.GarlicCooldown; break;
-                case WeaponType.Orbital: HasOrbital = true; OrbitalDamage = data.OrbitalDamage; OrbitalCount = data.OrbitalCount; OrbitalRadius = data.OrbitalRadius; OrbitalSpeed = data.OrbitalSpeed; break;
-                case WeaponType.Axe: HasAxe = true; AxeDamage = data.AxeDamage; AxeCount = data.AxeCount; AxeSpeed = data.AxeSpeed; break;
+                case WeaponType.Staff:    HasStaff = true; StaffDamage = data.StaffDamage; StaffCooldown = data.StaffCooldown; StaffCount = data.StaffProjectileCount; break;
+                case WeaponType.Garlic:   HasGarlic = true; GarlicDamage = data.GarlicDamage; GarlicRadius = data.GarlicRadius; GarlicCooldown = data.GarlicCooldown; break;
+                case WeaponType.Orbital:  HasOrbital = true; OrbitalDamage = data.OrbitalDamage; OrbitalCount = data.OrbitalCount; OrbitalRadius = data.OrbitalRadius; OrbitalSpeed = data.OrbitalSpeed; break;
+                case WeaponType.Axe:      HasAxe = true; AxeDamage = data.AxeDamage; AxeCount = data.AxeCount; AxeSpeed = data.AxeSpeed; break;
+                case WeaponType.Shuriken: HasShuriken = true; ShurikenDamage = data.AxeDamage; ShurikenCount = data.AxeCount; break;
             }
         }
 
@@ -60,35 +64,30 @@ namespace CombatSystem
             var data = WeaponTable.GetAcc(type, level);
             switch (type) {
                 case AccessoryType.Wings:
-                    // 버그3 수정: 레벨별 실제 효과 분기
-                    if (data.ValueInt == -1) {
-                        // Lv2: 이동속도 증가 (ValueFloat = 증가량)
-                        player.Speed += data.ValueFloat;
-                    } else if (data.ValueFloat > 1.0f && data.ValueInt == 0) {
-                        // Lv1: 투사체 속도 배율 (ValueFloat = 배율, 별도 필드에 저장)
-                        AccProjectileSpeedMult = data.ValueFloat;
-                    } else {
-                        // Lv3~5: 투사체 개수 보너스 누적
-                        AccProjectileBonus += data.ValueInt;
-                    }
+                    if (data.ValueInt == -1) { player.Speed += data.ValueFloat; }
+                    else if (data.ValueFloat > 1.0f && data.ValueInt == 0) { AccProjectileSpeedMult = data.ValueFloat; }
+                    else { AccProjectileBonus += data.ValueInt; }
                     break;
-                case AccessoryType.Armor: player.MaxHP += data.ValueFloat; player.HealHP(data.ValueFloat); break;
-                case AccessoryType.Ring: AccAreaMult = data.ValueFloat; break;
-                case AccessoryType.Glove: AccDamageMult = data.ValueFloat; break;
+                case AccessoryType.Armor:    player.MaxHP += data.ValueFloat; player.HealHP(data.ValueFloat); break;
+                case AccessoryType.Ring:     AccAreaMult = data.ValueFloat; break;
+                case AccessoryType.Glove:    AccDamageMult = data.ValueFloat; break;
+                case AccessoryType.Necklace: /* 경험치 배율은 LevelSystem.ExpMult로 처리 — GameCore에서 적용 */ break;
             }
         }
 
         public void ApplyEvolution(WeaponType from, WeaponType to)
         {
-            if (from == WeaponType.Staff) HasStaff = false;
-            if (from == WeaponType.Garlic) HasGarlic = false;
-            if (from == WeaponType.Orbital) HasOrbital = false;
-            if (from == WeaponType.Axe) HasAxe = false;
+            if (from == WeaponType.Staff)    HasStaff    = false;
+            if (from == WeaponType.Garlic)   HasGarlic   = false;
+            if (from == WeaponType.Orbital)  HasOrbital  = false;
+            if (from == WeaponType.Axe)      HasAxe      = false;
+            if (from == WeaponType.Shuriken) HasShuriken = false;
 
-            if (to == WeaponType.MagicCircle) HasMagicCircle = true;
-            if (to == WeaponType.HolyWater) HasHolyWater = true;
-            if (to == WeaponType.BlackHole) HasBlackHole = true;
-            if (to == WeaponType.AxeStorm) HasAxeStorm = true;
+            if (to == WeaponType.MagicCircle)      HasMagicCircle      = true;  // 헬파이어 (지팡이+날개)
+            if (to == WeaponType.HellFire)          HasHellFire         = true;  // 마법진 (영창+갑옷)
+            if (to == WeaponType.BlackHole)         HasBlackHole        = true;
+            if (to == WeaponType.AxeStorm)          HasAxeStorm         = true;
+            if (to == WeaponType.InfiniteShuriken)  HasInfiniteShuriken = true;
         }
 
         public void Update(float dt, Player player, List<Enemy> enemies, List<DamageText> damageTexts)
@@ -124,7 +123,41 @@ namespace CombatSystem
                 }
             }
 
-            // ── 진화: 마법진 (전방 3방향 무한 관통빔) ──
+            // ── 표창 (쿨타임 있는 직선 투척, 무한 관통) ──
+            if (HasShuriken) {
+                _shurikenTimer += dt;
+                if (_shurikenTimer >= ShurikenCooldown) {
+                    Enemy nearest = GetNearest(player.Position, enemies);
+                    if (nearest != null) {
+                        Vector2 dir = GetDir(player.Position, nearest.Position);
+                        int cnt = ShurikenCount + AccProjectileBonus;
+                        for (int i = 0; i < cnt; i++) {
+                            float ang = cnt > 1 ? -0.15f + (0.3f/(cnt-1))*i : 0f;
+                            Vector2 rd = Rotate(dir, ang);
+                            Projectiles.Add(new Projectile { Position = player.Position, Velocity = new Vector2(rd.X*520f*AccProjectileSpeedMult, rd.Y*520f*AccProjectileSpeedMult), Damage = ShurikenDamage * AccDamageMult, Lifetime = 2.5f, IsPiercing = true, PierceCount = 99 });
+                        }
+                        _shurikenTimer = 0f;
+                    }
+                }
+            }
+
+            // ── 무한표창 (돌아오면 즉시 재발사) ──
+            if (HasInfiniteShuriken) {
+                _isTimer += dt;
+                if (_isTimer >= 0.25f) { // 아주 빠른 재발사
+                    Enemy nearest = GetNearest(player.Position, enemies);
+                    if (nearest != null) {
+                        Vector2 dir = GetDir(player.Position, nearest.Position);
+                        int cnt = 2 + AccProjectileBonus;
+                        for (int i = 0; i < cnt; i++) {
+                            float ang = cnt > 1 ? -0.2f + (0.4f/(cnt-1))*i : 0f;
+                            Vector2 rd = Rotate(dir, ang);
+                            Projectiles.Add(new Projectile { Position = player.Position, Velocity = new Vector2(rd.X*600f, rd.Y*600f), Damage = 70f * AccDamageMult, Lifetime = 3f, IsPiercing = true, PierceCount = 999 });
+                        }
+                        _isTimer = 0f;
+                    }
+                }
+            }
             if (HasMagicCircle) {
                 _mcTimer += dt;
                 if (_mcTimer >= 0.4f) {
@@ -194,11 +227,10 @@ namespace CombatSystem
                 }
             }
 
-            // ── 진화: 성수 (피흡 폭발 펄스, 범위 적당히) ──
-            if (HasHolyWater) {
+            // ── 진화: 마법진 - 영창+갑옷 (피흡 폭발 펄스) ──
+            if (HasHellFire) {
                 _hwTimer += dt;
                 if (_hwTimer >= 1.0f) {
-                    // 버그2 수정: 항상 타이머 리셋 (적 유무/피해 여부와 무관)
                     _hwTimer = 0f;
                     float rad = 100f * AccAreaMult;
                     float totalHeal = 0f;
@@ -208,11 +240,11 @@ namespace CombatSystem
                             e.HP -= dmg; e.MeleeHitTimer = 0.2f;
                             Vector2 d = GetDir(player.Position, e.Position); e.KnockbackDir = d; e.KnockbackSpeed = 300f;
                             damageTexts.Add(new DamageText { Position = e.Position, Damage = dmg });
-                            totalHeal += dmg * 0.08f; // 가한 피해의 8% 피흡
+                            totalHeal += dmg * 0.08f;
                         }
                     }
                     if (totalHeal > 0) {
-                        float healed = Math.Min(totalHeal, player.MaxHP * 0.15f); // 최대 최대체력 15%까지만 회복
+                        float healed = Math.Min(totalHeal, player.MaxHP * 0.15f);
                         player.HealHP(healed);
                         damageTexts.Add(new DamageText { Position = player.Position, Damage = -healed });
                     }

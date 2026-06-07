@@ -2,8 +2,9 @@
 namespace WeaponData
 {
     public enum CardType { Weapon, Accessory }
-    public enum WeaponType { Staff, Garlic, Orbital, Axe, MagicCircle, HolyWater, BlackHole, AxeStorm }
-    public enum AccessoryType { Wings, Armor, Ring, Glove }
+    public enum WeaponType { Staff, Garlic, Orbital, Axe, Shuriken,
+                             MagicCircle, HellFire, BlackHole, AxeStorm, InfiniteShuriken }
+    public enum AccessoryType { Wings, Armor, Ring, Glove, Necklace }
 
     public class WeaponLevelData
     {
@@ -52,6 +53,14 @@ namespace WeaponData
             new WeaponLevelData { Level=5, AxeDamage=80f, AxeCount=3, AxeSpeed=500f, Description="도끼 3개 투척! 최대 강화" },
         };
 
+        public static readonly WeaponLevelData[] Shuriken = new[] {
+            new WeaponLevelData { Level=1, AxeDamage=18f, AxeCount=1, AxeSpeed=500f, Description="전방으로 표창 투척, 쿨타임 있음" },
+            new WeaponLevelData { Level=2, AxeDamage=25f, AxeCount=1, AxeSpeed=520f, Description="데미지 증가" },
+            new WeaponLevelData { Level=3, AxeDamage=33f, AxeCount=2, AxeSpeed=540f, Description="표창 2개 동시 투척!" },
+            new WeaponLevelData { Level=4, AxeDamage=45f, AxeCount=2, AxeSpeed=560f, Description="더 빠르고 강력하게" },
+            new WeaponLevelData { Level=5, AxeDamage=60f, AxeCount=3, AxeSpeed=580f, Description="표창 3개! 최대 강화" },
+        };
+
         // ── 장신구 테이블 ──
         // 날개: Lv1=투사체 속도+20%(ValueFloat=1.2f), Lv2=이동속도+20(ValueFloat=20f, ValueInt=-1 플래그),
         //       Lv3~5=투사체 개수+n(ValueInt)
@@ -85,16 +94,37 @@ namespace WeaponData
             new AccLevelData { Level=4, ValueFloat=1.4f, Description="모든 무기 데미지 40% 증가" },
             new AccLevelData { Level=5, ValueFloat=1.6f, Description="모든 무기 데미지 60% 증가!" }
         };
+        public static readonly AccLevelData[] Necklace = new[] {
+            new AccLevelData { Level=1, ValueFloat=1.15f, Description="경험치 획득량 15% 증가" },
+            new AccLevelData { Level=2, ValueFloat=1.3f,  Description="경험치 획득량 30% 증가" },
+            new AccLevelData { Level=3, ValueFloat=1.5f,  Description="경험치 획득량 50% 증가" },
+            new AccLevelData { Level=4, ValueFloat=1.7f,  Description="경험치 획득량 70% 증가" },
+            new AccLevelData { Level=5, ValueFloat=2.0f,  Description="경험치 획득량 2배!" }
+        };
 
         public static WeaponLevelData GetWeapon(WeaponType type, int level)
         {
             int idx = System.Math.Clamp(level - 1, 0, 4);
-            return type switch { WeaponType.Staff => Staff[idx], WeaponType.Garlic => Garlic[idx], WeaponType.Orbital => Orbital[idx], WeaponType.Axe => Axe[idx], _ => Staff[idx] };
+            return type switch {
+                WeaponType.Staff    => Staff[idx],
+                WeaponType.Garlic   => Garlic[idx],
+                WeaponType.Orbital  => Orbital[idx],
+                WeaponType.Axe      => Axe[idx],
+                WeaponType.Shuriken => Shuriken[idx],
+                _ => Staff[idx]
+            };
         }
         public static AccLevelData GetAcc(AccessoryType type, int level)
         {
             int idx = System.Math.Clamp(level - 1, 0, 4);
-            return type switch { AccessoryType.Wings => Wings[idx], AccessoryType.Armor => Armor[idx], AccessoryType.Ring => Ring[idx], AccessoryType.Glove => Glove[idx], _ => Wings[idx] };
+            return type switch {
+                AccessoryType.Wings    => Wings[idx],
+                AccessoryType.Armor    => Armor[idx],
+                AccessoryType.Ring     => Ring[idx],
+                AccessoryType.Glove    => Glove[idx],
+                AccessoryType.Necklace => Necklace[idx],
+                _ => Wings[idx]
+            };
         }
     }
 }
