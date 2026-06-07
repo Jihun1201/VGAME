@@ -53,12 +53,16 @@ namespace WeaponData
         };
 
         // ── 장신구 테이블 ──
+        // 날개: Lv1=투사체 속도+20%(ValueFloat=1.2f), Lv2=이동속도+20(ValueFloat=20f, ValueInt=-1 플래그),
+        //       Lv3~5=투사체 개수+n(ValueInt)
+        // ApplyAccessory에서 ValueInt >= 0이면 투사체 보너스, == -1이면 이동속도, ValueFloat > 1이면 속도배율
         public static readonly AccLevelData[] Wings = new[] {
-            new AccLevelData { Level=1, ValueInt=0, Description="투사체 속도 소폭 증가" },
-            new AccLevelData { Level=2, ValueInt=0, Description="이동 속도 보너스" },
-            new AccLevelData { Level=3, ValueInt=1, Description="모든 투사체 개수 +1" },
-            new AccLevelData { Level=4, ValueInt=1, Description="발사체 크기 증가" },
-            new AccLevelData { Level=5, ValueInt=2, Description="모든 투사체 개수 +2" }
+            // 버그3 수정: Lv1/2에 실제 효과값 부여
+            new AccLevelData { Level=1, ValueInt=0, ValueFloat=1.2f, Description="투사체 속도 20% 증가" },
+            new AccLevelData { Level=2, ValueInt=-1, ValueFloat=20f, Description="이동 속도 +20 증가" },
+            new AccLevelData { Level=3, ValueInt=1, ValueFloat=1.0f, Description="모든 투사체 개수 +1" },
+            new AccLevelData { Level=4, ValueInt=1, ValueFloat=1.0f, Description="투사체 개수 +1, 크기 증가" },
+            new AccLevelData { Level=5, ValueInt=2, ValueFloat=1.0f, Description="모든 투사체 개수 +2" }
         };
         public static readonly AccLevelData[] Armor = new[] {
             new AccLevelData { Level=1, ValueFloat=20f, Description="최대 체력 20 증가 & 회복" },

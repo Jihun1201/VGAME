@@ -10,31 +10,80 @@ namespace UpgradeLogic
     public class LevelSystem
     {
         public int Level = 1; public int CurrentExp = 0; public int MaxExp = 20; public bool IsLevelUpReady = false;
+        // ★ 메타 업그레이드: 경험치 획득 배율 (기본 1.0, 빠른성장 업그레이드로 증가)
+        public float ExpMult = 1.0f;
+
         public void AddExp(int amount)
         {
-            CurrentExp += amount;
+            // ExpMult 반영: 소수점은 확률로 처리
+            float scaled = amount * ExpMult;
+            int final    = (int)scaled;
+            // 소수 부분을 확률로 반올림 (예: 1.3 → 70% 확률로 1, 30% 확률로 2)
+            if ((float)(new Random().NextDouble()) < (scaled - final)) final++;
+
+            CurrentExp += final;
             if (CurrentExp >= MaxExp) { CurrentExp -= MaxExp; Level++; MaxExp += 10; IsLevelUpReady = true; }
         }
     }
+
+    // 풀강 시 등장하는 보너스 카드 종류
+    public enum BonusCardType { None, HealSmall, HealLarge, GoldSmall, GoldLarge, Shield }
 
     public class UpgradeCard
     {
         public CardType      CardType;
         public WeaponType    WeaponType;
         public AccessoryType AccessoryType;
+        public BonusCardType BonusType = BonusCardType.None; // 풀강 보너스 카드용
         public int           NextLevel;
         public string        Title;
         public string        Description;
         public bool          IsNewWeapon;
 
-        public Raylib_cs.Color CardColor => CardType == CardType.Weapon ? new Raylib_cs.Color(30, 60, 130, 220) : new Raylib_cs.Color(130, 60, 30, 220);
-        public Raylib_cs.Color BorderColor => CardType == CardType.Weapon ? new Raylib_cs.Color(80, 140, 255, 255) : new Raylib_cs.Color(255, 140, 80, 255);
-        public string Icon => CardType == CardType.Weapon ? "W" : "A";
+        public bool IsBonus => BonusType != BonusCardType.None;
+
+        public Raylib_cs.Color CardColor
+        {
+            get {
+                if (IsBonus) return new Raylib_cs.Color(20, 80, 40, 220);
+                return CardType == CardType.Weapon
+                    ? new Raylib_cs.Color(30, 60, 130, 220)
+                    : new Raylib_cs.Color(130, 60, 30, 220);
+            }
+        }
+        public Raylib_cs.Color BorderColor
+        {
+            get {
+                if (IsBonus) return new Raylib_cs.Color(80, 220, 120, 255);
+                return CardType == CardType.Weapon
+                    ? new Raylib_cs.Color(80, 140, 255, 255)
+                    : new Raylib_cs.Color(255, 140, 80, 255);
+            }
+        }
+        public string Icon
+        {
+            get {
+                if (IsBonus) return BonusType switch {
+                    BonusCardType.HealSmall => "+",
+                    BonusCardType.HealLarge => "++",
+                    BonusCardType.GoldSmall => "G",
+                    BonusCardType.GoldLarge => "GG",
+                    BonusCardType.Shield    => "S",
+                    _ => "?"
+                };
+                return CardType == CardType.Weapon ? "W" : "A";
+            }
+        }
     }
 
     public class CardDeck
     {
-        public Dictionary<WeaponType, int> WeaponLevels = new() { { WeaponType.Staff, 0 }, { WeaponType.Garlic, 0 }, { WeaponType.Orbital, 0 }, { WeaponType.Axe, 0 } };
+        // 버그7 수정: 진화 무기(MagicCircle 등)도 초기값 0으로 미리 등록
+        // IsEvolution() 체크와 함께 DrawCards에서 후보 제외되어 이중 안전장치가 됨
+        public Dictionary<WeaponType, int> WeaponLevels = new() {
+            { WeaponType.Staff, 0 }, { WeaponType.Garlic, 0 }, { WeaponType.Orbital, 0 }, { WeaponType.Axe, 0 },
+            { WeaponType.MagicCircle, 0 }, { WeaponType.HolyWater, 0 }, { WeaponType.BlackHole, 0 }, { WeaponType.AxeStorm, 0 }
+        };
         public Dictionary<AccessoryType, int> AccessoryLevels = new() { { AccessoryType.Wings, 0 }, { AccessoryType.Armor, 0 }, { AccessoryType.Ring, 0 }, { AccessoryType.Glove, 0 } };
 
         private Random _rng = new Random();
@@ -58,7 +107,7 @@ namespace UpgradeLogic
             foreach (var pair in WeaponLevels)
             {
                 if (IsEvolution(pair.Key)) continue;
-                if (EvolvedWeapons.Contains(pair.Key)) continue; // 진화 완료된 원본 무기는 제외
+                if (EvolvedWeapons.Contains(pair.Key)) continue;
                 if (pair.Value == 0) candidates.Add(new UpgradeCard { CardType = CardType.Weapon, WeaponType = pair.Key, NextLevel = 1, IsNewWeapon = true, Title = WeaponName(pair.Key) + " 해금", Description = WeaponTable.GetWeapon(pair.Key, 1).Description });
                 else if (pair.Value < 5) candidates.Add(new UpgradeCard { CardType = CardType.Weapon, WeaponType = pair.Key, NextLevel = pair.Value + 1, IsNewWeapon = false, Title = WeaponName(pair.Key) + $" Lv.{pair.Value + 1}", Description = WeaponTable.GetWeapon(pair.Key, pair.Value + 1).Description });
             }
@@ -71,6 +120,34 @@ namespace UpgradeLogic
             Shuffle(candidates);
             int count = Math.Min(3, candidates.Count);
             for (int i = 0; i < count; i++) CurrentCards.Add(candidates[i]);
+
+            // ★ 풀강 처리: 카드가 3장 미만이면 보너스 카드로 채움
+            // 이렇게 하면 완전 풀강(카드 0장)이어도 항상 3장이 표시됨
+            while (CurrentCards.Count < 3)
+                CurrentCards.Add(MakeBonusCard());
+        }
+
+        // 보너스 카드 풀 (풀강 시 대체)
+        private UpgradeCard MakeBonusCard()
+        {
+            // 랜덤하게 보너스 카드 종류 선택 (가중치 적용)
+            int roll = _rng.Next(100);
+            BonusCardType type;
+            string title, desc;
+
+            if (roll < 30)       { type = BonusCardType.HealSmall; title = "응급 치료";   desc = "현재 체력을 최대 체력의 25% 회복합니다."; }
+            else if (roll < 50)  { type = BonusCardType.HealLarge; title = "완전 회복";   desc = "현재 체력을 최대 체력의 60% 회복합니다."; }
+            else if (roll < 70)  { type = BonusCardType.GoldSmall; title = "골드 수집";   desc = "골드를 80 획득합니다."; }
+            else if (roll < 85)  { type = BonusCardType.GoldLarge; title = "골드 보따리"; desc = "골드를 200 획득합니다."; }
+            else                 { type = BonusCardType.Shield;    title = "임시 방패";   desc = "5초간 모든 피해를 무효화하는 방패를 얻습니다."; }
+
+            return new UpgradeCard {
+                CardType  = CardType.Weapon, // 더미값 (IsBonus == true이면 CardType 무시)
+                BonusType = type,
+                Title     = title,
+                Description = desc,
+                IsNewWeapon = false,
+            };
         }
 
         public UpgradeCard SelectCard(int index)
