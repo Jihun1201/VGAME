@@ -4,7 +4,7 @@ namespace WeaponData
     public enum CardType { Weapon, Accessory }
     public enum WeaponType { Staff, Garlic, Orbital, Axe, Shuriken,
                              MagicCircle, HellFire, BlackHole, AxeStorm, InfiniteShuriken }
-    public enum AccessoryType { Wings, Armor, Ring, Glove, Necklace }
+    public enum AccessoryType { Shoes, Armor, Ring, Glove, Necklace }
 
     public class WeaponLevelData
     {
@@ -29,7 +29,7 @@ namespace WeaponData
             new WeaponLevelData { Level=2, StaffDamage=22f, StaffCooldown=0.7f, StaffProjectileCount=1, Description="데미지 +7, 연사력 증가" },
             new WeaponLevelData { Level=3, StaffDamage=30f, StaffCooldown=0.6f, StaffProjectileCount=2, Description="투사체 2개 동시 발사!" },
             new WeaponLevelData { Level=4, StaffDamage=40f, StaffCooldown=0.5f, StaffProjectileCount=2, Description="강력한 데미지, 빠른 연사" },
-            new WeaponLevelData { Level=5, StaffDamage=55f, StaffCooldown=0.35f,StaffProjectileCount=3, Description="투사체 3개! 최대 강화" },
+            new WeaponLevelData { Level=5, StaffDamage=55f, StaffCooldown=0.35f,StaffProjectileCount=2, Description="더 강하게! 최대 강화" },
         };
         public static readonly WeaponLevelData[] Garlic = new[] {
             new WeaponLevelData { Level=1, GarlicDamage=5f, GarlicRadius=70f, GarlicCooldown=0.5f, Description="주변 근접 적 지속 피해" },
@@ -62,10 +62,10 @@ namespace WeaponData
         };
 
         // ── 장신구 테이블 ──
-        // 날개: Lv1=투사체 속도+20%(ValueFloat=1.2f), Lv2=이동속도+20(ValueFloat=20f, ValueInt=-1 플래그),
+        // 날개(→신발): Lv1=투사체 속도+20%(ValueFloat=1.2f), Lv2=이동속도+20(ValueFloat=20f, ValueInt=-1 플래그),
         //       Lv3~5=투사체 개수+n(ValueInt)
         // ApplyAccessory에서 ValueInt >= 0이면 투사체 보너스, == -1이면 이동속도, ValueFloat > 1이면 속도배율
-        public static readonly AccLevelData[] Wings = new[] {
+        public static readonly AccLevelData[] Shoes = new[] {
             // 버그3 수정: Lv1/2에 실제 효과값 부여
             new AccLevelData { Level=1, ValueInt=0, ValueFloat=1.2f, Description="투사체 속도 20% 증가" },
             new AccLevelData { Level=2, ValueInt=-1, ValueFloat=20f, Description="이동 속도 +20 증가" },
@@ -118,12 +118,12 @@ namespace WeaponData
         {
             int idx = System.Math.Clamp(level - 1, 0, 4);
             return type switch {
-                AccessoryType.Wings    => Wings[idx],
+                AccessoryType.Shoes    => Shoes[idx],
                 AccessoryType.Armor    => Armor[idx],
                 AccessoryType.Ring     => Ring[idx],
                 AccessoryType.Glove    => Glove[idx],
                 AccessoryType.Necklace => Necklace[idx],
-                _ => Wings[idx]
+                _ => Shoes[idx]
             };
         }
     }

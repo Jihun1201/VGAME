@@ -64,11 +64,8 @@ namespace UpgradeLogic
         {
             get {
                 if (IsBonus) return BonusType switch {
-                    BonusCardType.HealSmall => "+",
-                    BonusCardType.HealLarge => "++",
+                    BonusCardType.HealSmall => "HP",
                     BonusCardType.GoldSmall => "G",
-                    BonusCardType.GoldLarge => "GG",
-                    BonusCardType.Shield    => "S",
                     _ => "?"
                 };
                 return CardType == CardType.Weapon ? "W" : "A";
@@ -78,8 +75,7 @@ namespace UpgradeLogic
 
     public class CardDeck
     {
-        // 버그7 수정: 진화 무기(MagicCircle 등)도 초기값 0으로 미리 등록
-        // IsEvolution() 체크와 함께 DrawCards에서 후보 제외되어 이중 안전장치가 됨
+        // 진화 무기(MagicCircle 등)도 초기값 0으로 미리 등록
         public Dictionary<WeaponType, int> WeaponLevels = new() {
             { WeaponType.Staff, 0 }, { WeaponType.Garlic, 0 }, { WeaponType.Orbital, 0 },
             { WeaponType.Axe, 0 }, { WeaponType.Shuriken, 0 },
@@ -87,7 +83,7 @@ namespace UpgradeLogic
             { WeaponType.BlackHole, 0 }, { WeaponType.AxeStorm, 0 }, { WeaponType.InfiniteShuriken, 0 }
         };
         public Dictionary<AccessoryType, int> AccessoryLevels = new() {
-            { AccessoryType.Wings, 0 }, { AccessoryType.Armor, 0 },
+            { AccessoryType.Shoes, 0 }, { AccessoryType.Armor, 0 },
             { AccessoryType.Ring, 0 }, { AccessoryType.Glove, 0 }, { AccessoryType.Necklace, 0 }
         };
 
@@ -109,6 +105,7 @@ namespace UpgradeLogic
             CurrentCards.Clear();
             List<UpgradeCard> candidates = new List<UpgradeCard>();
 
+            // 1. 업그레이드 가능한 무기/장신구를 먼저 스캔
             foreach (var pair in WeaponLevels)
             {
                 if (IsEvolution(pair.Key)) continue;
@@ -122,25 +119,26 @@ namespace UpgradeLogic
                 else if (pair.Value < 5) candidates.Add(new UpgradeCard { CardType = CardType.Accessory, AccessoryType = pair.Key, NextLevel = pair.Value + 1, IsNewWeapon = false, Title = AccName(pair.Key) + $" Lv.{pair.Value + 1}", Description = WeaponTable.GetAcc(pair.Key, pair.Value + 1).Description });
             }
 
-            Shuffle(candidates);
-            int count = Math.Min(3, candidates.Count);
-            for (int i = 0; i < count; i++) CurrentCards.Add(candidates[i]);
+            // 2. 업그레이드 후보가 단 1개라도 있으면 그것만 보여줌 (남은 빈자리를 골드/회복으로 채우지 않음)
+            if (candidates.Count > 0)
+            {
+                Shuffle(candidates);
+                int count = Math.Min(3, candidates.Count);
+                for (int i = 0; i < count; i++) CurrentCards.Add(candidates[i]);
+            }
+            // 3. 업그레이드 할 것이 "전혀 없을 때"만 빵과 금화 보따리 고정 출현
+            else
+            {
+                CurrentCards.Add(new UpgradeCard {
+                    CardType = CardType.Weapon, BonusType = BonusCardType.HealSmall,
+                    Title = "빵", Description = "체력을 30% 회복합니다.", IsNewWeapon = false
+                });
 
-            // ★ 풀강 처리: 카드가 3장 미만이면 보너스 카드로 채움
-            // 이렇게 하면 완전 풀강(카드 0장)이어도 항상 3장이 표시됨
-            while (CurrentCards.Count < 3)
-                CurrentCards.Add(MakeBonusCard());
-        }
-
-        private UpgradeCard MakeBonusCard()
-        {
-            int roll = _rng.Next(100);
-            BonusCardType type; string title, desc;
-            if      (roll < 35) { type = BonusCardType.HealSmall; title = "응급 치료";   desc = "현재 체력을 최대 체력의 25% 회복합니다."; }
-            else if (roll < 60) { type = BonusCardType.HealLarge; title = "완전 회복";   desc = "현재 체력을 최대 체력의 60% 회복합니다."; }
-            else if (roll < 80) { type = BonusCardType.GoldSmall; title = "골드 수집";   desc = "골드를 80 획득합니다."; }
-            else                { type = BonusCardType.GoldLarge; title = "골드 보따리"; desc = "골드를 200 획득합니다."; }
-            return new UpgradeCard { CardType = CardType.Weapon, BonusType = type, Title = title, Description = desc, IsNewWeapon = false };
+                CurrentCards.Add(new UpgradeCard {
+                    CardType = CardType.Weapon, BonusType = BonusCardType.GoldSmall,
+                    Title = "금화 보따리", Description = "100 골드를 획득합니다.", IsNewWeapon = false
+                });
+            }
         }
 
         public UpgradeCard SelectCard(int index, LevelSystem levelSystem = null)
@@ -166,20 +164,19 @@ namespace UpgradeLogic
             return card;
         }
 
-        // ★ [신규] 보물상자 열기 로직 (1, 3, 5 아이템 드랍)
+        // 보물상자 열기 로직
         public List<string> OpenChest(Weapon weapon, Player player)
         {
             List<string> results = new List<string>();
             int roll = _rng.Next(100);
-            
-            // 확률: 80% = 1상자 / 15% = 3상자 / 5% = 5상자
-            int chestCount = (roll < 80) ? 1 : (roll < 95) ? 3 : 5;
+            int chestCount = (roll < 60) ? 1 : (roll < 90) ? 3 : 5;
 
             for (int i = 0; i < chestCount; i++)
             {
                 // 1순위: 진화 가능한 무기가 있다면 최우선으로 진화시킴
                 if (TryEvolveWeapon(weapon, out string evoName))
                 {
+                    // 확실하게 진화한 무기 이름이 넘어가도록 설정
                     results.Add($"★ 진화: {evoName} ★");
                     continue;
                 }
@@ -195,7 +192,6 @@ namespace UpgradeLogic
                         upgradables.Add(new UpgradeCard { CardType = CardType.Accessory, AccessoryType = a.Key, NextLevel = a.Value + 1 });
                 }
 
-                // 업그레이드 할 게 남아있다면 랜덤으로 1업
                 if (upgradables.Count > 0)
                 {
                     var pick = upgradables[_rng.Next(upgradables.Count)];
@@ -209,7 +205,6 @@ namespace UpgradeLogic
                         results.Add(AccName(pick.AccessoryType) + " Lv." + pick.NextLevel);
                     }
                 }
-                // 진화도 못하고, 모든 장비가 만렙이라면 골드 뭉치 지급
                 else
                 {
                     player.Gold += 100;
@@ -219,19 +214,18 @@ namespace UpgradeLogic
             return results;
         }
 
-        // 진화 여부 체크 및 실행
+        // 진화 여부 체크
         private bool TryEvolveWeapon(Weapon weapon, out string evoName)
         {
             evoName = "";
-            if (CheckEvo(WeaponType.Staff,    AccessoryType.Wings,    WeaponType.MagicCircle,     weapon, out evoName)) return true;
-            if (CheckEvo(WeaponType.Garlic,   AccessoryType.Armor,    WeaponType.HellFire,        weapon, out evoName)) return true;
+            if (CheckEvo(WeaponType.Staff,    AccessoryType.Shoes,    WeaponType.HellFire,        weapon, out evoName)) return true;
+            if (CheckEvo(WeaponType.Garlic,   AccessoryType.Armor,    WeaponType.MagicCircle,     weapon, out evoName)) return true;
             if (CheckEvo(WeaponType.Orbital,  AccessoryType.Ring,     WeaponType.BlackHole,       weapon, out evoName)) return true;
             if (CheckEvo(WeaponType.Axe,      AccessoryType.Glove,    WeaponType.AxeStorm,        weapon, out evoName)) return true;
             if (CheckEvo(WeaponType.Shuriken, AccessoryType.Necklace, WeaponType.InfiniteShuriken,weapon, out evoName)) return true;
             return false;
         }
 
-        // 진화 여부 체크: 무기만 만렙(5), 장신구는 1렙 이상이면 진화 가능
         private bool CheckEvo(WeaponType w, AccessoryType a, WeaponType evo, Weapon weapon, out string evoName)
         {
             evoName = "";
@@ -261,15 +255,15 @@ namespace UpgradeLogic
             WeaponType.Orbital           => "궤도구체",
             WeaponType.Axe               => "도끼",
             WeaponType.Shuriken          => "표창",
-            WeaponType.MagicCircle       => "헬파이어",
-            WeaponType.HellFire          => "마법진",
+            WeaponType.MagicCircle       => "마법진",
+            WeaponType.HellFire          => "헬파이어",
             WeaponType.BlackHole         => "블랙홀",
             WeaponType.AxeStorm          => "도끼폭풍",
             WeaponType.InfiniteShuriken  => "무한표창",
             _                            => "???"
         };
         private string AccName(AccessoryType t) => t switch {
-            AccessoryType.Wings    => "날개(투사체+)",
+            AccessoryType.Shoes    => "신발(투사체+)",
             AccessoryType.Armor    => "갑옷(방어+)",
             AccessoryType.Ring     => "반지(범위+)",
             AccessoryType.Glove    => "장갑(데미지+)",
