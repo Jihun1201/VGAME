@@ -16,6 +16,9 @@ namespace GameCore
 
     public class Engine
     {
+        private Music _bgm; 
+        
+        
         private int _titleMenuIdx = 0;
         private Player        _player;
         private List<Enemy>   _enemies;
@@ -116,6 +119,8 @@ namespace GameCore
             Raylib.SetTargetFPS(60);
 
             Raylib.SetExitKey(KeyboardKey.Null);
+            Raylib.InitAudioDevice();
+            _bgm = Raylib.LoadMusicStream("sound.ogg");
 
             _texIdle      = Raylib.LoadTexture("image/idle.png");
             _texTitleIdle = Raylib.LoadTexture("image/ups_idle.png");
@@ -176,7 +181,9 @@ namespace GameCore
             foreach (var f in _gemFileNames) _gemTextures.Add(Raylib.LoadTexture(f));
 
             while (!Raylib.WindowShouldClose()) { Update(Raylib.GetFrameTime()); Render(); }
-
+            Raylib.StopMusicStream(_bgm);
+            Raylib.UnloadMusicStream(_bgm);
+            Raylib.CloseAudioDevice();
             Raylib.UnloadTexture(_texIdle); Raylib.UnloadTexture(_texTitleIdle);
             Raylib.UnloadTexture(_texWalk); Raylib.UnloadTexture(_texEnemy);
             Raylib.UnloadTexture(_texFloor);
@@ -198,6 +205,10 @@ namespace GameCore
 
         private void Update(float dt)
         {
+            if (Raylib.IsMusicStreamPlaying(_bgm))
+            {
+                 Raylib.UpdateMusicStream(_bgm);
+            }
             if (_currentState == GameState.Title)
             {
                 if (Raylib.IsKeyPressed(KeyboardKey.Up))    _titleMenuIdx = (_titleMenuIdx + 2) % 3;
@@ -258,6 +269,7 @@ namespace GameCore
                 {
                     _save.EarnGold(_player.Gold);
                     _save.Save();
+                    Raylib.StopMusicStream(_bgm);
                     _currentState = GameState.Title;
                 }
                 return;
@@ -653,7 +665,7 @@ namespace GameCore
             _midBoss7Spawned = false;
             _finalBossSpawned = false; _finalBoss = null;
             _bossZones?.Clear(); _bossProjectiles?.Clear(); _floorHazards?.Clear();
-
+            Raylib.PlayMusicStream(_bgm);
             _currentState = GameState.Playing;
         }
 
@@ -1414,7 +1426,7 @@ namespace GameCore
             float exitTime = 1.5f + (count * 0.8f) + 0.5f;
             if (_chestAnimTimer > exitTime)
             {
-                DrawTextKR("ENTER ?ㅻ줈 ?リ린", 320, 520, 20, Color.LightGray);
+                DrawTextKR("ENTER 게임으로 이동", 320, 520, 20, Color.LightGray);
                 if ((int)(Raylib.GetTime() * 4) % 2 == 0) 
                     Raylib.DrawRectangleLines(300, 505, 200, 40, Color.Gold);
             }
@@ -1822,7 +1834,7 @@ namespace GameCore
             Raylib.DrawRectangle(40, 92, 340, 400, new Color(14,14,30,220));
             Raylib.DrawRectangleLines(40, 92, 340, 400, new Color(40,40,70,200));
             Raylib.DrawRectangle(40, 92, 340, 4, new Color(80,120,255,180));
-            DrawTextKR("?꾩옱 ?ㅽ럺", 158, 100, 20, new Color(160,180,255,255));
+            DrawTextKR("능력치", 158, 100, 20, new Color(160,180,255,255));
             Raylib.DrawLine(56, 128, 368, 128, new Color(40,40,70,200));
 
             int sy2 = 138;
