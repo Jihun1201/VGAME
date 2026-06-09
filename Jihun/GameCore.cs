@@ -117,7 +117,7 @@ namespace GameCore
 
         public void Run()
         {
-            Raylib.InitWindow(800, 600, "ASDF SURVIVOR");
+            Raylib.InitWindow(800, 600, "VAMPIRE COMMANDO");
             Raylib.SetTargetFPS(60);
 
             Raylib.SetExitKey(KeyboardKey.Null);
@@ -726,9 +726,8 @@ namespace GameCore
                 }
 
                 for (int g = 5; g >= 1; g--)
-                    Raylib.DrawText("ASDF SURVIVOR", 130 - g, 45 - g, 64,
-                        new Color((byte)255,(byte)180,(byte)0,(byte)(18 * g)));
-                Raylib.DrawText("ASDF SURVIVOR", 130, 45, 64, Color.Gold);
+                    Raylib.DrawText("VAMPIRE COMMANDO", 60 - g, 45 - g, 64, new Color((byte)255,(byte)180,(byte)0,(byte)(18 * g)));
+                Raylib.DrawText("VAMPIRE COMMANDO", 60, 45, 64, Color.Gold);
 
                 float sp = (float)(0.6 + 0.4 * Math.Sin(gt * 2.2));
                 DrawTextKR("5분을 버텨라", 328, 118, 18,
