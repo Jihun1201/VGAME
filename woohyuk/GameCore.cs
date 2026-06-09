@@ -16,7 +16,6 @@ namespace GameCore
 
     public class Engine
     {
-        private Texture2D _texItems32;
         private int _titleMenuIdx = 0;
         private Player        _player;
         private List<Enemy>   _enemies;
@@ -41,13 +40,13 @@ namespace GameCore
         private float _spawnTimer  = 0f;
         private float _survivalTime= 0f;
 
-        private bool _midBoss1Spawned = false; 
-        private bool _midBoss2Spawned = false; 
-        private bool _midBoss3Spawned = false; 
-        private bool _midBoss4Spawned = false; 
-        private bool _midBoss5Spawned = false; 
-        private bool _midBoss6Spawned = false; 
-        private bool _midBoss7Spawned = false; 
+        private bool _midBoss1Spawned = false; // 1:00
+        private bool _midBoss2Spawned = false; // 2:00
+        private bool _midBoss3Spawned = false; // 2:30
+        private bool _midBoss4Spawned = false; // 3:00
+        private bool _midBoss5Spawned = false; // 3:30
+        private bool _midBoss6Spawned = false; // 4:00
+        private bool _midBoss7Spawned = false; // 4:30
 
         private bool  _finalBossSpawned = false;
         private Enemy _finalBoss        = null;
@@ -63,9 +62,14 @@ namespace GameCore
         private Texture2D _texIdle, _texTitleIdle, _texWalk, _texEnemy, _texFloor;
         private Texture2D[] _shopIcons = Array.Empty<Texture2D>();
         private Texture2D _texStaffIcon, _texHellFireIcon, _texShoesIcon, _texFireball;
+        private Texture2D _texStaffBullet;
         private Texture2D _texGarlicIcon, _texOrbitalIcon, _texAxeIcon, _texShurikenIcon;
         private Texture2D _texMagicCircleIcon, _texBlackHoleIcon, _texAxeStormIcon, _texInfiniteShurikenIcon;
         private Texture2D _texArmorIcon, _texRingIcon, _texGloveIcon, _texNecklaceIcon;
+        private Texture2D _texFireZone;   // 장판 불꽃 스프라이트시트 (fire.png, 8x8 grid)
+        private Texture2D _texItems32;    // 32x32 아이템 스프라이트시트 (32x32.png)
+        private float _fireAnimTimer = 0f;
+        private int   _fireFrame     = 0;
         private Font _fontKR;  
         private List<Texture2D> _gemTextures = new List<Texture2D>();
         private string[] _shopIconFileNames =
@@ -110,6 +114,7 @@ namespace GameCore
         {
             Raylib.InitWindow(800, 600, "ASDF SURVIVOR");
             Raylib.SetTargetFPS(60);
+
             Raylib.SetExitKey(KeyboardKey.Null);
 
             _texIdle      = Raylib.LoadTexture("image/idle.png");
@@ -121,6 +126,7 @@ namespace GameCore
             _texHellFireIcon = Raylib.LoadTexture("image/icon_hellfire.png");
             _texShoesIcon = Raylib.LoadTexture("image/icon_shoes.png");
             _texFireball = Raylib.LoadTexture("image/projectile_fireball.png");
+            _texStaffBullet = Raylib.LoadTexture("image/projectile_staff.png");
             _texGarlicIcon = Raylib.LoadTexture("image/icon_garlic.png");
             _texOrbitalIcon = Raylib.LoadTexture("image/icon_orbital.png");
             _texAxeIcon = Raylib.LoadTexture("image/icon_axe.png");
@@ -133,6 +139,10 @@ namespace GameCore
             _texRingIcon = Raylib.LoadTexture("image/icon_ring.png");
             _texGloveIcon = Raylib.LoadTexture("image/icon_glove.png");
             _texNecklaceIcon = Raylib.LoadTexture("image/icon_necklace.png");
+            _texFireZone  = Raylib.LoadTexture("image/fire.png");
+            _texItems32   = Raylib.LoadTexture("image/32x32.png");
+            Raylib.SetTextureFilter(_texFireZone,  TextureFilter.Bilinear);
+            Raylib.SetTextureFilter(_texItems32,   TextureFilter.Point);
             _shopIcons    = new Texture2D[_shopIconFileNames.Length];
             for (int i = 0; i < _shopIconFileNames.Length; i++)
                 _shopIcons[i] = Raylib.LoadTexture(_shopIconFileNames[i]);
@@ -145,6 +155,7 @@ namespace GameCore
             Raylib.SetTextureFilter(_texHellFireIcon, TextureFilter.Point);
             Raylib.SetTextureFilter(_texShoesIcon, TextureFilter.Point);
             Raylib.SetTextureFilter(_texFireball, TextureFilter.Bilinear);
+            Raylib.SetTextureFilter(_texStaffBullet, TextureFilter.Bilinear);
             Raylib.SetTextureFilter(_texGarlicIcon, TextureFilter.Point);
             Raylib.SetTextureFilter(_texOrbitalIcon, TextureFilter.Point);
             Raylib.SetTextureFilter(_texAxeIcon, TextureFilter.Point);
@@ -170,13 +181,15 @@ namespace GameCore
             Raylib.UnloadTexture(_texWalk); Raylib.UnloadTexture(_texEnemy);
             Raylib.UnloadTexture(_texFloor);
             Raylib.UnloadTexture(_texStaffIcon); Raylib.UnloadTexture(_texHellFireIcon);
-            Raylib.UnloadTexture(_texShoesIcon); Raylib.UnloadTexture(_texFireball);
+            Raylib.UnloadTexture(_texShoesIcon); Raylib.UnloadTexture(_texFireball); Raylib.UnloadTexture(_texStaffBullet);
             Raylib.UnloadTexture(_texGarlicIcon); Raylib.UnloadTexture(_texOrbitalIcon);
             Raylib.UnloadTexture(_texAxeIcon); Raylib.UnloadTexture(_texShurikenIcon);
             Raylib.UnloadTexture(_texMagicCircleIcon); Raylib.UnloadTexture(_texBlackHoleIcon);
             Raylib.UnloadTexture(_texAxeStormIcon); Raylib.UnloadTexture(_texInfiniteShurikenIcon);
             Raylib.UnloadTexture(_texArmorIcon); Raylib.UnloadTexture(_texRingIcon);
             Raylib.UnloadTexture(_texGloveIcon); Raylib.UnloadTexture(_texNecklaceIcon);
+            Raylib.UnloadTexture(_texFireZone);
+            Raylib.UnloadTexture(_texItems32);
             foreach (var icon in _shopIcons) Raylib.UnloadTexture(icon);
             Raylib.UnloadFont(_fontKR);
             foreach (var t in _gemTextures) Raylib.UnloadTexture(t);
@@ -299,6 +312,10 @@ namespace GameCore
 
             _survivalTime += dt;
 
+            // fire.png 애니메이션 타이머 (8x8 = 64프레임, ~0.07s마다 전진)
+            _fireAnimTimer += dt;
+            if (_fireAnimTimer >= 0.07f) { _fireAnimTimer = 0f; _fireFrame = (_fireFrame + 1) % 64; }
+
             _player.Update(dt);
             _camera.Target = new System.Numerics.Vector2(_player.Position.X, _player.Position.Y);
 
@@ -409,12 +426,14 @@ namespace GameCore
                 }
             }
 
+
             foreach (var z in _bossZones) {
                 z.Timer += dt; if (z.HitTimer>0) z.HitTimer -= dt;
                 if (z.IsActive && z.HitTimer<=0 && Vector2.Distance(_player.Position,z.Position)<z.Radius)
                 { if (!_player.IsShielded) { _player.CurrentHP-=z.Damage; _player.HitTimer=0.2f; } z.HitTimer=0.5f; }
             }
             _bossZones.RemoveAll(z => z.IsDone);
+
 
             bool anyBossAlive = _enemies.Exists(e => e.IsBoss && !e.IsDead);
             if (anyBossAlive) {
@@ -429,7 +448,7 @@ namespace GameCore
                             WarnTime = 1.5f, ActiveTime = 2.5f });
                 }
             } else {
-                _floorHazardTimer = 0f; 
+                _floorHazardTimer = 0f;
             }
             foreach (var z in _floorHazards) {
                 z.Timer += dt; if (z.HitTimer>0) z.HitTimer -= dt;
@@ -437,6 +456,7 @@ namespace GameCore
                 { if (!_player.IsShielded) { _player.CurrentHP-=z.Damage*dt*3f; _player.HitTimer=0.1f; } z.HitTimer=0.3f; }
             }
             _floorHazards.RemoveAll(z => z.IsDone);
+
 
             foreach (var bp in _bossProjectiles) {
                 bp.Position.X+=bp.Velocity.X*dt; bp.Position.Y+=bp.Velocity.Y*dt;
@@ -454,6 +474,7 @@ namespace GameCore
             {
                 if (_enemies[i].IsDead)
                 {
+
                     if (_enemies[i].IsBoss)
                     { 
                         _mapChests.Add(new MapChest { Position = _enemies[i].Position }); 
@@ -498,6 +519,8 @@ namespace GameCore
             }
             _gems.RemoveAll(g => g.IsCollected);
 
+
+
             foreach (var chest in _mapChests)
             {
                 chest.Update(dt);
@@ -507,7 +530,7 @@ namespace GameCore
                     chest.Open();
                     _chestRewards = _cardDeck.OpenChest(_weapon, _player);
                     _currentState = GameState.ChestReward; 
-                    _chestAnimTimer = 0f; 
+                    _chestAnimTimer = 0f;
                 }
             }
             _mapChests.RemoveAll(c => c.IsDone);
@@ -551,25 +574,31 @@ namespace GameCore
 
         private void ResumeGame() { _levelSystem.IsLevelUpReady = false; _currentState = GameState.Playing; }
 
+
         private void ApplyBonusCard(UpgradeCard card)
         {
-            // ★ 고정된 수치 30% 체력 / 100 골드
             switch (card.BonusType)
             {
                 case BonusCardType.HealSmall:
+                    _player.HealHP(_player.MaxHP * 0.25f);
+                    _damageTexts.Add(new DamageText { Position = _player.Position, Damage = -(_player.MaxHP * 0.25f) });
+                    break;
                 case BonusCardType.HealLarge:
-                    _player.HealHP(_player.MaxHP * 0.30f);
-                    _damageTexts.Add(new DamageText { Position = _player.Position, Damage = -(_player.MaxHP * 0.30f) });
+                    _player.HealHP(_player.MaxHP * 0.60f);
+                    _damageTexts.Add(new DamageText { Position = _player.Position, Damage = -(_player.MaxHP * 0.60f) });
                     break;
                 case BonusCardType.GoldSmall:
+                    _player.Gold += 80;
+                    break;
                 case BonusCardType.GoldLarge:
-                    _player.Gold += 100;
+                    _player.Gold += 200;
                     break;
                 case BonusCardType.Shield:
                     _player.ShieldTimer = 5f;
                     break;
             }
         }
+
 
         private void StartGame()
         {
@@ -587,6 +616,7 @@ namespace GameCore
             _cardDeck.InitStartingWeapons(hasStaff: true, hasGarlic: false, hasOrbital: false);
             _weapon.ApplyLevel(WeaponType.Staff, 1);
 
+            // 메타 업그레이드 초기값 적용
             var def_hp    = MetaTable.Get(MetaUpgradeType.MaxHP);
             var def_spd   = MetaTable.Get(MetaUpgradeType.MoveSpeed);
             var def_dmg   = MetaTable.Get(MetaUpgradeType.StartDamage);
@@ -629,6 +659,7 @@ namespace GameCore
 
         private void Render()
         {
+
             if (_currentState == GameState.Shop)       { RenderShop();       return; }
             if (_currentState == GameState.RecipeBook) { RenderRecipeBook(); return; }
 
@@ -637,6 +668,7 @@ namespace GameCore
             if (_currentState == GameState.Title)
             {
                 double gt = Raylib.GetTime();
+
                 for (int row = 0; row < 600; row++)
                 {
                     float rf = row / 600f;
@@ -645,6 +677,7 @@ namespace GameCore
                     byte b = (byte)(18 + (int)(15  * rf));
                     Raylib.DrawLine(0, row, 800, row, new Color(r, g, b, (byte)255));
                 }
+
                 for (int s = 0; s < 90; s++)
                 {
                     int   sx = (s * 131 + 53) % 800;
@@ -653,6 +686,7 @@ namespace GameCore
                     byte  sc = (byte)(int)(220 * tw);
                     Raylib.DrawCircle(sx, sy, (s % 4 == 0) ? 2 : 1, new Color(sc, sc, sc, sc));
                 }
+
                 if (_texTitleIdle.Width > 0)
                 {
                     int   fr  = (int)(gt * 10) % 10;
@@ -666,13 +700,16 @@ namespace GameCore
                     Raylib.DrawTexturePro(_texTitleIdle, src,
                         new Rectangle(400, 282 + fy, fw*sc, fh*sc), org, 0f, Color.White);
                 }
+
                 for (int g = 5; g >= 1; g--)
                     Raylib.DrawText("ASDF SURVIVOR", 130 - g, 45 - g, 64,
                         new Color((byte)255,(byte)180,(byte)0,(byte)(18 * g)));
                 Raylib.DrawText("ASDF SURVIVOR", 130, 45, 64, Color.Gold);
+
                 float sp = (float)(0.6 + 0.4 * Math.Sin(gt * 2.2));
                 DrawTextKR("5분을 버텨라", 328, 118, 18,
                     new Color((byte)160,(byte)160,(byte)210,(byte)(int)(240*sp)));
+
 
                 (string icon, string label, string hint)[] menus = {
                     ("▶", "게임 시작", "ENTER"),
@@ -692,7 +729,7 @@ namespace GameCore
                     Color bd  = sel ? menuAccent[i] : new Color(40,40,65,200);
                     Raylib.DrawRectangle(200, by2, 400, 46, bg);
                     Raylib.DrawRectangleLines(200, by2, 400, 46, bd);
-                    if (sel) Raylib.DrawRectangle(200, by2, 4, 46, menuAccent[i]); 
+                    if (sel) Raylib.DrawRectangle(200, by2, 4, 46, menuAccent[i]);
                     Color tc = sel ? Color.White : new Color((byte)140,(byte)140,(byte)180,(byte)255);
                     DrawTextKR($"{menus[i].icon}  {menus[i].label}", 222, by2 + 13, 19, tc);
                     DrawTextKR(menus[i].hint, 525, by2 + 15, 13,
@@ -732,16 +769,20 @@ namespace GameCore
                 else Raylib.DrawCircle((int)gem.Position.X,(int)gem.Position.Y,5,Color.SkyBlue);
             }
 
+
+
             if (_weapon.HasGarlic)
             {
                 int gr = (int)_weapon.GarlicRadius;
                 Raylib.DrawCircle((int)_player.Position.X,(int)_player.Position.Y, gr, new Color(80,190,80,28));
                 Raylib.DrawCircleLines((int)_player.Position.X,(int)_player.Position.Y, gr, new Color(100,230,100,90));
                 Raylib.DrawCircle((int)_player.Position.X,(int)_player.Position.Y, gr/2, new Color(60,255,120,18));
+
                 Raylib.DrawCircleLines((int)_player.Position.X,(int)_player.Position.Y, gr+2, new Color(80,200,80,50));
             }
             if (_weapon.HasMagicCircle)
             {
+
                 int mr = (int)(120f * _weapon.AccAreaMult);
                 double gt2 = Raylib.GetTime();
                 if (_texMagicCircleIcon.Id != 0)
@@ -757,6 +798,8 @@ namespace GameCore
             }
             if (_weapon.HasHellFire)
             {
+
+
                 double gt3 = Raylib.GetTime();
                 float hfPulse = (float)(0.7 + 0.3 * Math.Sin(gt3 * 6));
                 Raylib.DrawCircle((int)_player.Position.X,(int)_player.Position.Y, 18, new Color((byte)255,(byte)80,(byte)0,(byte)(int)(30*hfPulse)));
@@ -791,6 +834,7 @@ namespace GameCore
                 }
             }
 
+            // 보스 장판 렌더링 (경고→활성, 활성시 fire.png 스프라이트 사용)
             foreach (var z in _bossZones)
             {
                 int zx = (int)z.Position.X, zy = (int)z.Position.Y, zr = (int)z.Radius;
@@ -804,12 +848,29 @@ namespace GameCore
                 }
                 else if (z.IsActive)
                 {
-                    Raylib.DrawCircle(zx, zy, zr, new Color((byte)200, (byte)0, (byte)0, (byte)100));
+                    Raylib.DrawCircle(zx, zy, zr, new Color((byte)200, (byte)0, (byte)0, (byte)80));
                     Raylib.DrawCircleLines(zx, zy, zr, new Color((byte)255, (byte)30, (byte)30, (byte)220));
-                    Raylib.DrawCircleLines(zx, zy, zr - 2, new Color((byte)255, (byte)120, (byte)50, (byte)160));
+                    if (_texFireZone.Id != 0)
+                    {
+                        float fw = _texFireZone.Width  / 8f;
+                        float fh = _texFireZone.Height / 8f;
+                        int col = _fireFrame % 8, frow = _fireFrame / 8;
+                        var fireSrc = new Rectangle(col * fw, frow * fh, fw, fh);
+                        float fireSize = zr * 2.0f;
+                        var fireDst = new Rectangle(zx, zy, fireSize, fireSize);
+                        var fireOrg = new System.Numerics.Vector2(fireSize / 2f, fireSize / 2f);
+                        Raylib.DrawTexturePro(_texFireZone, fireSrc, fireDst, fireOrg, 0f,
+                            new Color((byte)255, (byte)255, (byte)255, (byte)210));
+                    }
+                    else
+                    {
+                        Raylib.DrawCircleLines(zx, zy, zr - 2, new Color((byte)255, (byte)120, (byte)50, (byte)160));
+                    }
                 }
             }
 
+
+            // 중간보스/일반 바닥 장판 렌더링 (활성시 fire.png 스프라이트 사용)
             foreach (var z in _floorHazards)
             {
                 int zx = (int)z.Position.X, zy = (int)z.Position.Y, zr = (int)z.Radius;
@@ -821,19 +882,36 @@ namespace GameCore
                 }
                 else if (z.IsActive)
                 {
-                    Raylib.DrawCircle(zx, zy, zr, new Color((byte)180, (byte)0, (byte)0, (byte)80));
+                    Raylib.DrawCircle(zx, zy, zr, new Color((byte)180, (byte)0, (byte)0, (byte)60));
                     Raylib.DrawCircleLines(zx, zy, zr, new Color((byte)255, (byte)20, (byte)20, (byte)200));
+                    if (_texFireZone.Id != 0)
+                    {
+                        float fw = _texFireZone.Width  / 8f;
+                        float fh = _texFireZone.Height / 8f;
+                        int col = _fireFrame % 8, frow = _fireFrame / 8;
+                        var fireSrc = new Rectangle(col * fw, frow * fh, fw, fh);
+                        float fireSize = zr * 2.0f;
+                        var fireDst = new Rectangle(zx, zy, fireSize, fireSize);
+                        var fireOrg = new System.Numerics.Vector2(fireSize / 2f, fireSize / 2f);
+                        Raylib.DrawTexturePro(_texFireZone, fireSrc, fireDst, fireOrg, 0f,
+                            new Color((byte)255, (byte)255, (byte)255, (byte)180));
+                    }
                 }
             }
+
 
             foreach (var bp in _bossProjectiles)
             {
                 int bpx = (int)bp.Position.X, bpy = (int)bp.Position.Y;
+
                 Raylib.DrawCircle(bpx, bpy, (int)(bp.Radius + 6), new Color((byte)200, (byte)0, (byte)0, (byte)60));
+
                 Raylib.DrawCircle(bpx, bpy, (int)bp.Radius, new Color((byte)255, (byte)30, (byte)30, (byte)230));
                 Raylib.DrawCircleLines(bpx, bpy, (int)bp.Radius + 1, new Color((byte)255, (byte)150, (byte)80, (byte)200));
+
                 Raylib.DrawCircle(bpx, bpy, 4, new Color((byte)255, (byte)200, (byte)180, (byte)255));
             }
+
 
             foreach (var e in _enemies)
             {
@@ -841,6 +919,7 @@ namespace GameCore
                 {
                     float dashT = 1f - (e.DashWarnRemain / 1.0f);
                     byte da = (byte)(int)(100 + 155 * Math.Abs(Math.Sin(Raylib.GetTime() * 12)));
+
                     Raylib.DrawLineEx(
                         new System.Numerics.Vector2(e.DashWarnStart.X, e.DashWarnStart.Y),
                         new System.Numerics.Vector2(e.DashWarnEnd.X, e.DashWarnEnd.Y),
@@ -849,6 +928,7 @@ namespace GameCore
                         new System.Numerics.Vector2(e.DashWarnStart.X, e.DashWarnStart.Y),
                         new System.Numerics.Vector2(e.DashWarnEnd.X, e.DashWarnEnd.Y),
                         4f, new Color((byte)255, (byte)60, (byte)60, da));
+                    // ?앹젏 ??
                     Raylib.DrawCircle((int)e.DashWarnEnd.X, (int)e.DashWarnEnd.Y, 14,
                         new Color((byte)255, (byte)0, (byte)0, (byte)(int)(60 + 60 * Math.Sin(Raylib.GetTime() * 10))));
                     Raylib.DrawCircleLines((int)e.DashWarnEnd.X, (int)e.DashWarnEnd.Y, 14,
@@ -856,6 +936,7 @@ namespace GameCore
                 }
             }
 
+            // 투사체 렌더링
             foreach (var p in _weapon.Projectiles)
             {
                 Texture2D projectileTex = GetProjectileTexture(p);
@@ -870,6 +951,7 @@ namespace GameCore
                 }
                 else if (p.IsPiercing)
                 {
+
                     Raylib.DrawCircle((int)p.Position.X,(int)p.Position.Y,8,new Color(255,140,30,230));
                     Raylib.DrawCircleLines((int)p.Position.X,(int)p.Position.Y,10,new Color(255,200,80,120));
                 }
@@ -880,9 +962,11 @@ namespace GameCore
                 }
             }
 
+
             foreach (var e in _enemies)
             {
                 float spriteHalfH = 0f;
+
                 bool twinkle = e.HitTimer > 0;
                 bool showWhite = twinkle && ((int)(e.HitTimer * 30) % 2 == 0);
                 if (_texEnemy.Width > 0)
@@ -893,6 +977,7 @@ namespace GameCore
                     var org = new System.Numerics.Vector2(fw*e.Scale/2, fh*e.Scale/2);
                     Color col = showWhite ? Color.White : e.TintColor;
                     Raylib.DrawTexturePro(_texEnemy,src,dst,org,0f,col);
+
                     if (showWhite)
                         Raylib.DrawCircle((int)e.Position.X,(int)e.Position.Y,(int)(fw*e.Scale/2)*2/3,new Color(255,255,255,80));
                     spriteHalfH = fh * e.Scale / 2f;
@@ -905,6 +990,7 @@ namespace GameCore
                     if (showWhite) Raylib.DrawCircle((int)e.Position.X,(int)e.Position.Y, er+3, new Color(255,255,255,80));
                     spriteHalfH = er;
                 }
+
 
                 if (e.IsBoss && e.MaxHP > 0)
                 {
@@ -924,6 +1010,7 @@ namespace GameCore
                 }
             }
 
+            
             if (_texIdle.Width>0 && _texWalk.Width>0)
             {
                 Texture2D ct  = _player.IsMoving ? _texWalk : _texIdle;
@@ -943,6 +1030,7 @@ namespace GameCore
             else
                 Raylib.DrawCircle((int)_player.Position.X,(int)_player.Position.Y,15,new Color(80,140,255,255));
 
+
             if (_player.IsShielded)
             {
                 float pulse = (float)(0.55 + 0.45*Math.Sin(Raylib.GetTime()*9));
@@ -951,6 +1039,7 @@ namespace GameCore
                 Raylib.DrawCircle((int)_player.Position.X,(int)_player.Position.Y,
                     30, new Color((byte)255,(byte)220,(byte)60,(byte)(int)(40*pulse)));
             }
+
 
             {
                 float hpR2 = _player.CurrentHP / _player.MaxHP;
@@ -962,6 +1051,7 @@ namespace GameCore
                 Raylib.DrawRectangle(pbx, pby, (int)(44*hpR2), 6, phc);
             }
 
+            // 데미지 텍스트 렌더링
             foreach (var t in _damageTexts)
             {
                 bool isHeal = t.Damage < 0;
@@ -973,22 +1063,28 @@ namespace GameCore
                 Color  dc   = isHeal ? new Color((byte)80,(byte)255,(byte)120,alpha)
                                      : (t.Damage > 60 ? new Color((byte)255,(byte)80,(byte)40,alpha)
                                                        : new Color((byte)255,(byte)230,(byte)60,alpha));
+
                 DrawTextKR(txt, (int)t.Position.X-9, (int)t.Position.Y-19, fs, new Color((byte)0,(byte)0,(byte)0,(byte)(alpha/2)));
                 DrawTextKR(txt, (int)t.Position.X-10, (int)t.Position.Y-20, fs, dc);
             }
 
             Raylib.EndMode2D();
 
+
+
             float expR = (float)_levelSystem.CurrentExp / _levelSystem.MaxExp;
             Raylib.DrawRectangle(0, 0, 800, 6, new Color(10,10,30,220));
             Raylib.DrawRectangle(0, 0, (int)(800*expR), 6, new Color(60,120,255,255));
             Raylib.DrawRectangle(0, 5, (int)(800*expR), 2, new Color(160,200,255,140));
 
+
             Raylib.DrawRectangle(0, 6, 800, 36, new Color(8,8,20,210));
             Raylib.DrawLine(0, 42, 800, 42, new Color(30,30,60,200));
 
+            
             Raylib.DrawRectangle(6, 10, 60, 24, new Color(40,80,160,200));
             DrawTextKR($"Lv.{_levelSystem.Level}", 10, 13, 18, Color.White);
+
 
             float hpRhud = Math.Max(0, _player.CurrentHP / _player.MaxHP);
             Raylib.DrawRectangle(72, 12, 130, 16, new Color(20,0,0,200));
@@ -997,8 +1093,10 @@ namespace GameCore
             Raylib.DrawRectangleLines(72, 12, 130, 16, new Color(60,60,80,200));
             DrawTextKR($"{(int)_player.CurrentHP}/{(int)_player.MaxHP}", 75, 13, 13, Color.White);
 
+
             Raylib.DrawRectangle(212, 10, 90, 24, new Color(50,40,0,180));
             DrawTextKR($"G {_player.Gold}", 218, 13, 16, Color.Gold);
+
 
             int min=(int)_survivalTime/60, sec=(int)_survivalTime%60;
             string timeStr = $"{min:D2}:{sec:D2}";
@@ -1006,16 +1104,19 @@ namespace GameCore
             Raylib.DrawRectangleLines(340, 8, 120, 28, new Color(50,50,90,200));
             DrawTextKR(timeStr, 358, 12, 22, new Color(200,210,255,255));
 
+
             DrawTextKR($"ATK {_weapon.StaffDamage * _weapon.AccDamageMult:F0}", 668, 13, 15, new Color(255,180,80,220));
+
 
             if (_finalBossSpawned && _finalBoss != null && !_finalBoss.IsDead)
             {
                 float bp = (float)(0.5 + 0.5*Math.Sin(Raylib.GetTime()*4));
                 Color wc = new Color((byte)255,(byte)(int)(40+40*bp),(byte)0,(byte)255);
-                DrawTextKR("⚠ FINAL BOSS", 318, 549, 18, wc);
+                DrawTextKR("?? FINAL BOSS", 318, 549, 18, wc);
                 float br = Math.Max(0, _finalBoss.HP / _finalBoss.MaxHP);
                 Raylib.DrawRectangle(60, 570, 680, 18, new Color(20,0,0,220));
                 Raylib.DrawRectangle(60, 570, (int)(680*br), 18, new Color(200,20,20,255));
+
                 for (int seg = 1; seg < 4; seg++)
                     Raylib.DrawLine(60 + 680*seg/4, 570, 60 + 680*seg/4, 588, new Color(0,0,0,100));
                 Raylib.DrawRectangle(60, 568, (int)(680*br), 2, new Color(255,120,120,180));
@@ -1028,15 +1129,18 @@ namespace GameCore
 
             if (_currentState == GameState.GameOver)
             {
+
                 for (int row2 = 0; row2 < 600; row2++)
                 {
                     float rf = row2 / 600f;
                     byte ra = (byte)(int)(180 * (1 - rf * 0.3f));
                     Raylib.DrawLine(0, row2, 800, row2, new Color((byte)(int)(80*rf),(byte)0,(byte)0,ra));
                 }
+
                 Raylib.DrawRectangle(160, 130, 480, 320, new Color(10,0,0,230));
                 Raylib.DrawRectangleLines(160, 130, 480, 320, new Color(180,0,0,255));
                 Raylib.DrawRectangleLines(162, 132, 476, 316, new Color(80,0,0,200));
+
                 for (int g = 4; g >= 1; g--)
                     Raylib.DrawText("YOU  DIED", 218-g, 158-g, 56, new Color((byte)180,(byte)0,(byte)0,(byte)(25*g)));
                 Raylib.DrawText("YOU  DIED", 218, 158, 56, new Color(220,40,40,255));
@@ -1044,12 +1148,14 @@ namespace GameCore
                 DrawTextKR($"생존 시간   {min:D2} : {sec:D2}", 280, 238, 18, new Color(180,120,120,255));
                 DrawTextKR($"획득 골드   {_player.Gold} G", 295, 268, 18, Color.Gold);
                 DrawTextKR("획득 골드는 영구 보관됩니다", 258, 296, 15, new Color(120,80,80,255));
+
                 Raylib.DrawRectangle(270, 358, 260, 44, new Color(140,20,20,230));
                 Raylib.DrawRectangleLines(270, 358, 260, 44, new Color(220,60,60,255));
                 DrawTextKR("R  -  타이틀로 돌아가기", 285, 370, 18, Color.White);
             }
             if (_currentState == GameState.Victory)
             {
+
                 for (int row2 = 0; row2 < 600; row2++)
                 {
                     float rf = row2 / 600f;
@@ -1059,6 +1165,7 @@ namespace GameCore
                 Raylib.DrawRectangle(140, 110, 520, 360, new Color(5,10,30,235));
                 Raylib.DrawRectangleLines(140, 110, 520, 360, Color.Gold);
                 Raylib.DrawRectangleLines(142, 112, 516, 356, new Color(100,80,0,200));
+
                 double gtt = Raylib.GetTime();
                 for (int s = 0; s < 12; s++)
                 {
@@ -1075,12 +1182,14 @@ namespace GameCore
                 Raylib.DrawLine(160, 240, 640, 240, new Color(80,70,0,180));
                 DrawTextKR($"생존 시간   {min:D2} : {sec:D2}", 278, 256, 18, new Color(200,200,160,255));
                 DrawTextKR($"획득 골드   {_player.Gold} G", 290, 286, 18, Color.Gold);
-                DrawTextKR($"영구 골드 합계   {_save.PermanentGold + _player.Gold} G", 248, 316, 18, new Color(255,220,100,255));
+                DrawTextKR($"총합 골드 획득   {_save.PermanentGold + _player.Gold} G", 248, 316, 18, new Color(255,220,100,255));
+
                 Raylib.DrawRectangle(260, 376, 280, 44, new Color(30,70,20,230));
                 Raylib.DrawRectangleLines(260, 376, 280, 44, Color.Gold);
                 DrawTextKR("R  -  타이틀로 돌아가기", 278, 388, 18, Color.White);
             }
 
+            // 일시정지 오버레이 렌더링
             if (_currentState == GameState.Pause) RenderPauseMenu();
 
             Raylib.EndDrawing();
@@ -1088,8 +1197,10 @@ namespace GameCore
 
         private void RenderLevelUpCards()
         {
+
             Raylib.DrawRectangle(0, 0, 800, 600, new Color(0,0,0,170));
 
+            // ?쒕ぉ
             for (int g = 3; g >= 1; g--)
                 Raylib.DrawText("LEVEL  UP", 272-g, 36-g, 46, new Color((byte)200,(byte)160,(byte)0,(byte)(30*g)));
             Raylib.DrawText("LEVEL  UP", 272, 36, 46, Color.Gold);
@@ -1111,37 +1222,37 @@ namespace GameCore
                 int  cx   = startX + i * (cardW + spacing);
                 bool bonus = card.IsBonus;
 
+
                 Raylib.DrawRectangle(cx+6, cardY+6, cardW, cardH, new Color(0,0,0,100));
+
+
                 Raylib.DrawRectangle(cx, cardY, cardW, cardH, card.CardColor);
+
+
                 Raylib.DrawRectangle(cx, cardY, cardW, 6, card.BorderColor);
+
+
                 Raylib.DrawRectangleLines(cx, cardY, cardW, cardH, card.BorderColor);
                 Raylib.DrawRectangleLines(cx+2, cardY+2, cardW-4, cardH-4,
                     new Color(card.BorderColor.R, card.BorderColor.G, card.BorderColor.B, (byte)50));
 
-                // ── 아이콘 영역 ──
-                int iconH = 68;
-                // 배경을 먼저 그립니다.
-                Raylib.DrawRectangle(cx, cardY+6, cardW, iconH, new Color(0,0,0,50));
 
-                // 빵(회복) 아이템일 경우와 일반 아이템인 경우를 나누어 그립니다.
-                if (card.IsBonus && card.BonusType == BonusCardType.HealSmall && _texItems32.Id != 0)
+                int iconH = 68;
+                Raylib.DrawRectangle(cx, cardY+6, cardW, iconH, new Color(0,0,0,50));
+                Texture2D cardIcon = GetCardIcon(card);
+                if (cardIcon.Id != 0)
+                    DrawItemIcon(cardIcon, cx + cardW/2 - 24, cardY + 16, 48);
+                else if (card.IsBonus && (card.BonusType == BonusCardType.HealSmall || card.BonusType == BonusCardType.HealLarge) && _texItems32.Id != 0)
                 {
-                    // 왼쪽에서 2번째 (1 * 32), 위에서 33번째 (32 * 32)
-                    Rectangle srcRect = new Rectangle(1 * 32, 32 * 32, 32, 32); 
-                    Rectangle dstRect = new Rectangle(cx + cardW/2 - 24, cardY + 16, 48, 48);
-                    Raylib.DrawTexturePro(_texItems32, srcRect, dstRect, new System.Numerics.Vector2(0, 0), 0f, Color.White);
+                    // 32x32.png: 왼쪽 2번째(col=1), 위에서 33번째(row=32) → X=32, Y=1024
+                    var breadSrc = new Rectangle(32, 1024, 32, 32);
+                    var breadDst = new Rectangle(cx + cardW/2 - 24, cardY + 16, 48, 48);
+                    Raylib.DrawTexturePro(_texItems32, breadSrc, breadDst, new System.Numerics.Vector2(0,0), 0f, Color.White);
                 }
                 else
-                {
-                    // 일반 아이템 로직
-                    Texture2D cardIcon = GetCardIcon(card);
-                    if (cardIcon.Id != 0)
-                        DrawItemIcon(cardIcon, cx + cardW/2 - 24, cardY + 16, 48);
-                    else
-                        DrawTextKR(card.Icon, cx + cardW/2 - 16, cardY + 18, 40, card.BorderColor);
-                }
+                    DrawTextKR(card.Icon, cx + cardW/2 - 16, cardY + 18, 40, card.BorderColor);
 
-                // NEW 배지 로직은 아이콘 그린 다음에 위치해야 합니다.
+
                 if (card.IsNewWeapon)
                 {
                     Raylib.DrawRectangle(cx+8, cardY+iconH+10, cardW-16, 20, new Color(255,170,0,210));
@@ -1151,11 +1262,13 @@ namespace GameCore
                 int titleY = card.IsNewWeapon ? cardY+iconH+34 : cardY+iconH+12;
                 DrawTextKR(card.Title, cx+10, titleY, 16, Color.White);
 
+
                 int divY2 = titleY + 24;
                 Raylib.DrawLine(cx+10, divY2, cx+cardW-10, divY2,
                     new Color(card.BorderColor.R, card.BorderColor.G, card.BorderColor.B, (byte)80));
 
                 DrawWrappedTextKR(card.Description, cx+10, divY2+8, cardW-20, 14, new Color(195,195,205,255));
+
 
                 string statLine = GetStatPreview(card);
                 if (statLine != "")
@@ -1165,6 +1278,7 @@ namespace GameCore
                     DrawTextKR(statLine, cx+10, statY+1, 13, new Color(255,225,90,255));
                 }
 
+
                 int btnY = cardY + cardH + 10;
                 Raylib.DrawRectangle(cx + cardW/2 - 20, btnY, 40, 30, card.BorderColor);
                 Raylib.DrawRectangleLines(cx + cardW/2 - 20, btnY, 40, 30, Color.White);
@@ -1173,6 +1287,9 @@ namespace GameCore
 
             DrawTextKR("키보드  1 / 2 / 3  으로 선택", 284, 474, 17, new Color(130,130,160,255));
         }
+
+
+
 
         private void RenderChestReward()
         {
@@ -1184,21 +1301,23 @@ namespace GameCore
             float t = Math.Min(_chestAnimTimer, 1.0f); 
             float easeOut = 1f - (1f - t) * (1f - t);
 
+
             if (_chestAnimTimer > 0.2f)
             {
                 float beamLength = 600f * easeOut;
+
                 Color[] beam1 = { new Color((byte)60, (byte)120, (byte)255, (byte)180) }; 
                 Color[] beam3 = {
-                    new Color((byte)255, (byte)50, (byte)50, (byte)180),   
-                    new Color((byte)60,  (byte)120,(byte)255,(byte)180),   
-                    new Color((byte)50,  (byte)220,(byte)80, (byte)180),   
+                    new Color((byte)255, (byte)50, (byte)50, (byte)180),
+                    new Color((byte)60,  (byte)120,(byte)255,(byte)180),  
+                    new Color((byte)50,  (byte)220,(byte)80, (byte)180),
                 };
                 Color[] beam5 = {
-                    new Color((byte)180,(byte)50, (byte)255,(byte)180),   
-                    new Color((byte)255,(byte)50, (byte)50, (byte)180),   
-                    new Color((byte)60, (byte)120,(byte)255,(byte)180),   
-                    new Color((byte)50, (byte)220,(byte)80, (byte)180),   
-                    new Color((byte)180,(byte)50, (byte)255,(byte)180),   
+                    new Color((byte)180,(byte)50, (byte)255,(byte)180),
+                    new Color((byte)255,(byte)50, (byte)50, (byte)180),
+                    new Color((byte)60, (byte)120,(byte)255,(byte)180),  
+                    new Color((byte)50, (byte)220,(byte)80, (byte)180),
+                    new Color((byte)180,(byte)50, (byte)255,(byte)180),
                 };
                 Color[] beamColors = count == 1 ? beam1 : count == 3 ? beam3 : beam5;
 
@@ -1214,6 +1333,7 @@ namespace GameCore
                 }
             }
 
+            // 상자 열기 파티클 이펙트
             if (_chestAnimTimer > 0.1f && _chestAnimTimer < 2.5f)
             {
                 int particleCount = count * 15; 
@@ -1231,7 +1351,9 @@ namespace GameCore
                 }
             }
 
+
             float bounce = _chestAnimTimer < 0.5f ? (float)Math.Sin(_chestAnimTimer * 10f) * 10f : 0f;
+
             for (int i = 0; i < count; i++) {
                 float lockTime = 1.5f + (i * 0.8f);
                 if (_chestAnimTimer > lockTime && _chestAnimTimer < lockTime + 0.15f) bounce = -15f; 
@@ -1243,36 +1365,38 @@ namespace GameCore
             if (_chestAnimTimer > 0.3f) Raylib.DrawRectangle(cx - 50, drawY - 45, 100, 15, new Color((byte)160, (byte)110, (byte)55, (byte)255));
             Raylib.DrawRectangle(cx - 10, drawY - 10, 20, 20, new Color((byte)220, (byte)180, (byte)50, (byte)255));
 
-            string[] dummyNames = { "지팡이", "영창", "궤도구체", "도끼", "표창", "신발", "갑옷", "반지", "장갑", "목걸이", "헬파이어", "마법진", "블랙홀", "도끼폭풍", "무한표창" };
 
-            if (_chestAnimTimer > 1.0f) 
+            string[] dummyNames = { "지팡이", "영창", "궤도구체", "도끼", "신발", "갑옷", "반지", "장갑", "마법진", "금화 주머니", "???" };
+
+            if (_chestAnimTimer > 1.0f)
             {
                 int spacing = 60; 
                 int startY = 250 - (count * spacing / 2);
 
                 for (int i = 0; i < count; i++)
                 {
+
                     float lockTime = 1.5f + (i * 0.8f); 
 
                     if (_chestAnimTimer < lockTime)
                     {
-                        int randIdx = (int)(_chestAnimTimer * 30 + i * 7) % dummyNames.Length; 
+
+                        int randIdx = (int)(_chestAnimTimer * 30 + i * 7) % dummyNames.Length;
                         string spinText = dummyNames[randIdx];
+
 
                         int shakeY = (int)(Math.Sin(_chestAnimTimer * 50 + i) * 3);
 
                         Raylib.DrawRectangle(150, startY + (i * spacing) - 15, 500, 40, new Color((byte)0, (byte)0, (byte)0, (byte)150));
-                        DrawTextKR(spinText, 260, startY + (i * spacing) + shakeY, 28, Color.Gray); 
+                        DrawTextKR(spinText, 260, startY + (i * spacing) + shakeY, 28, Color.Gray);
                     }
                     else
                     {
+
                         float timeSinceLock = _chestAnimTimer - lockTime;
-                        string rewardText = _chestRewards[i];
+                        Color textColor = _chestRewards[i].Contains("★") ? Color.Gold : Color.White;
                         
-                        // ★ [수정 부분 1] 진화 텍스트 노란색(Gold) 처리
-                        bool isEvo = rewardText.Contains("진화"); 
-                        Color textColor = isEvo ? Color.Gold : Color.White;
-                        
+
                         if (timeSinceLock < 0.1f) 
                         {
                             Raylib.DrawRectangle(150, startY + (i * spacing) - 15, 500, 40, new Color((byte)255, (byte)255, (byte)255, (byte)200));
@@ -1280,24 +1404,27 @@ namespace GameCore
                         else 
                         {
                             Raylib.DrawRectangle(150, startY + (i * spacing) - 15, 500, 40, new Color((byte)0, (byte)0, (byte)0, (byte)150));
-                            DrawTextKR(rewardText, 260, startY + (i * spacing), 28, textColor);
+                            DrawTextKR(_chestRewards[i], 260, startY + (i * spacing), 28, textColor);
                         }
                     }
                 }
             }
 
+
             float exitTime = 1.5f + (count * 0.8f) + 0.5f;
             if (_chestAnimTimer > exitTime)
             {
-                DrawTextKR("ENTER 키로 닫기", 320, 520, 20, Color.LightGray);
+                DrawTextKR("ENTER ?ㅻ줈 ?リ린", 320, 520, 20, Color.LightGray);
                 if ((int)(Raylib.GetTime() * 4) % 2 == 0) 
                     Raylib.DrawRectangleLines(300, 505, 200, 40, Color.Gold);
             }
         }
 
+       
         private void RenderShop()
         {
             Raylib.BeginDrawing();
+
             for (int row2 = 0; row2 < 600; row2++)
             {
                 float rf = row2/600f;
@@ -1305,6 +1432,7 @@ namespace GameCore
                     new Color((byte)(8+4*(int)rf),(byte)(8+4*(int)rf),(byte)(18+10*(int)rf),(byte)255));
             }
 
+  
             Raylib.DrawRectangle(0, 0, 800, 58, new Color(10,10,25,230));
             Raylib.DrawLine(0, 58, 800, 58, new Color(60,50,20,255));
             for (int g = 3; g >= 1; g--)
@@ -1312,7 +1440,7 @@ namespace GameCore
             Raylib.DrawText("SHOP", 330, 10, 40, Color.Gold);
             Raylib.DrawRectangle(560, 14, 220, 30, new Color(40,34,0,200));
             Raylib.DrawRectangleLines(560, 14, 220, 30, new Color(100,80,0,200));
-            DrawTextKR($"★  {_save.PermanentGold} G", 572, 18, 20, Color.Gold);
+            DrawTextKR($"?? {_save.PermanentGold} G", 572, 18, 20, Color.Gold);
 
             var upgrades = MetaTable.All;
             int rowH = 74, startY = 72;
@@ -1323,6 +1451,7 @@ namespace GameCore
                 bool max  = lv >= def.MaxLevel;
                 bool sel  = (i == _shopCursor);
                 int  ry   = startY + i * rowH;
+
 
                 Color bg = sel ? new Color(30,30,55,240) : new Color(14,14,28,210);
                 Raylib.DrawRectangle(30, ry, 740, rowH-5, bg);
@@ -1339,11 +1468,14 @@ namespace GameCore
                     Raylib.DrawTexturePro(_shopIcons[i], iconSrc, iconDst, new System.Numerics.Vector2(0, 0), 0f, Color.White);
                 }
 
+                // ?대쫫
                 Color nc = max ? new Color(80,80,80,255) : (sel ? Color.White : new Color(200,200,210,255));
                 DrawTextKR((max?"[MAX] ":"")+def.Name, 106, ry+8, 20, nc);
                 DrawTextKR(def.Description, 106, ry+34, 14, new Color(130,130,150,255));
 
+
                 DrawLevelSquares(440, ry+20, lv, def.MaxLevel);
+
 
                 if (max)
                     DrawTextKR("MAX", 660, ry+22, 20, new Color(80,80,80,255));
@@ -1355,6 +1487,7 @@ namespace GameCore
                     Raylib.DrawRectangleLines(620, ry+10, 130, 30, canBuy?new Color(120,200,60,200):new Color(150,40,40,200));
                     DrawTextKR($"{cost} G", 632, ry+15, 18, canBuy?Color.Gold:new Color(180,60,60,255));
                 }
+
 
                 string prev = GetMetaEffectPreview(def, lv);
                 if (prev != "") DrawTextKR(prev, 440, ry+44, 13, new Color(100,200,100,255));
@@ -1380,6 +1513,7 @@ namespace GameCore
             };
         }
 
+        
         private void RenderRecipeBook()
         {
             Raylib.BeginDrawing();
@@ -1390,6 +1524,7 @@ namespace GameCore
                     new Color((byte)(8+4*(int)rf),(byte)(8+4*(int)rf),(byte)(20+12*(int)rf),(byte)255));
             }
 
+            // ???ㅻ뜑
             Raylib.DrawRectangle(0,0,800,56, new Color(10,10,25,235));
             Raylib.DrawLine(0,56,800,56,new Color(40,40,70,255));
 
@@ -1491,6 +1626,7 @@ namespace GameCore
                 Raylib.DrawRectangleLines(28, ey, 744, rh-6, new Color(evo.c.R/2,evo.c.G/2,evo.c.B/2,(byte)200));
                 Raylib.DrawRectangle(28, ey, 4, rh-6, evo.c);
 
+
                 Raylib.DrawRectangle(44, ey+12, 180, 44, new Color(evo.c.R,evo.c.G,evo.c.B,(byte)20));
                 Raylib.DrawRectangleLines(44, ey+12, 180, 44, new Color(evo.c.R,evo.c.G,evo.c.B,(byte)80));
                 if (evoIndex < evoWeaponIcons.Length) DrawItemIcon(evoWeaponIcons[evoIndex], 52, ey+18, 26);
@@ -1505,6 +1641,7 @@ namespace GameCore
 
                 DrawTextKR("=", 432, ey+22, 24, new Color(150,150,150,255));
 
+
                 Raylib.DrawRectangle(456, ey+10, 300, 50, new Color(evo.c.R,evo.c.G,evo.c.B,(byte)25));
                 int resultTextX = 466;
                 if (evoIndex < evoResultIcons.Length)
@@ -1512,19 +1649,20 @@ namespace GameCore
                     DrawItemIcon(evoResultIcons[evoIndex], 466, ey+17, 34);
                     resultTextX = 508;
                 }
-                DrawTextKR("★  "+evo.r, resultTextX, ey+14, 22, evo.c);
+                DrawTextKR("?? "+evo.r, resultTextX, ey+14, 22, evo.c);
                 DrawTextKR(evo.d,        resultTextX, ey+44, 14, new Color(160,160,170,255));
 
                 evoIndex++;
                 ey += rh;
             }
-            DrawTextKR("※ 진화 후 원본 무기는 슬롯에서 제거됩니다", 50, ey+6, 14, new Color(80,80,100,255));
+            DrawTextKR("진화 후 원본 무기는 슬롯에서 제거됩니다", 50, ey+6, 14, new Color(80,80,100,255));
         }
 
         private Texture2D GetProjectileTexture(Projectile p)
         {
             return p.Sprite switch
             {
+                ProjectileSprite.StaffBullet => _texStaffBullet,
                 ProjectileSprite.Fireball => _texFireball,
                 ProjectileSprite.Axe => _texAxeIcon,
                 ProjectileSprite.AxeStorm => _texAxeStormIcon,
@@ -1538,6 +1676,7 @@ namespace GameCore
         {
             return p.Sprite switch
             {
+                ProjectileSprite.StaffBullet => 22f,
                 ProjectileSprite.Fireball => p.IsPiercing ? 30f : 22f,
                 ProjectileSprite.Axe => 28f,
                 ProjectileSprite.AxeStorm => 30f,
@@ -1665,6 +1804,7 @@ namespace GameCore
             }
         }
 
+        
         private void RenderPauseMenu()
         {
             Raylib.DrawRectangle(0, 0, 800, 600, new Color(0,0,0,200));
@@ -1682,7 +1822,7 @@ namespace GameCore
             Raylib.DrawRectangle(40, 92, 340, 400, new Color(14,14,30,220));
             Raylib.DrawRectangleLines(40, 92, 340, 400, new Color(40,40,70,200));
             Raylib.DrawRectangle(40, 92, 340, 4, new Color(80,120,255,180));
-            DrawTextKR("현재 스펙", 158, 100, 20, new Color(160,180,255,255));
+            DrawTextKR("?꾩옱 ?ㅽ럺", 158, 100, 20, new Color(160,180,255,255));
             Raylib.DrawLine(56, 128, 368, 128, new Color(40,40,70,200));
 
             int sy2 = 138;

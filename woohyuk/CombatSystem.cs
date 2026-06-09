@@ -7,7 +7,7 @@ using WeaponData;
 
 namespace CombatSystem
 {
-    public enum ProjectileSprite { None, Fireball, Axe, AxeStorm, Shuriken, InfiniteShuriken }
+    public enum ProjectileSprite { None, StaffBullet, Fireball, Axe, AxeStorm, Shuriken, InfiniteShuriken }
 
     public class Projectile
     {
@@ -121,7 +121,7 @@ namespace CombatSystem
                                 Damage = StaffDamage * AccDamageMult,
                                 Lifetime = 2f,
                                 IsFireball = true,
-                                Sprite = ProjectileSprite.Fireball
+                                Sprite = ProjectileSprite.StaffBullet
                             });
                         }
                         _staffTimer = 0f;
