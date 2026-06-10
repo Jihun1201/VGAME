@@ -117,7 +117,7 @@ namespace GameCore
 
         public void Run()
         {
-            Raylib.InitWindow(800, 600, "ASDF SURVIVOR");
+            Raylib.InitWindow(800, 600, "Vampire Comanndo");
             Raylib.SetTargetFPS(60);
 
             Raylib.SetExitKey(KeyboardKey.Null);
