@@ -16,6 +16,8 @@ namespace GameCore
 
     public class Engine
     {
+        // Engine 클래스 내부
+        private float _bgmVolume = 1.0f; // 0.0f ~ 1.0f
         private Music _bgm; 
         
         
@@ -277,7 +279,17 @@ namespace GameCore
             if (_currentState == GameState.Pause)
             {
                 if (Raylib.IsKeyPressed(KeyboardKey.Escape)) _currentState = GameState.Playing;
-                if (Raylib.IsKeyPressed(KeyboardKey.Q)) Raylib.CloseWindow(); 
+                if (Raylib.IsKeyPressed(KeyboardKey.Q)) Raylib.CloseWindow();
+
+                // 볼륨 조절 슬라이더 로직
+                var mp = Raylib.GetMousePosition();
+                // 슬라이더 영역: X=500~700, Y=540
+                if (Raylib.IsMouseButtonDown(MouseButton.Left) && mp.X >= 500 && mp.X <= 700 && mp.Y >= 530 && mp.Y <= 550)
+                {
+                    _bgmVolume = (mp.X - 500) / 200f;
+                    _bgmVolume = Math.Clamp(_bgmVolume, 0f, 1f);
+                    Raylib.SetMusicVolume(_bgm, _bgmVolume);
+                }
                 return;
             }
 
@@ -399,13 +411,13 @@ namespace GameCore
             Enemy MakeBoss(float hp, float dmg, float spd, float scale, Color col, float interval=5f)
             { var b=new Enemy{Position=BossPos(),Damage=dmg,Speed=spd,Scale=scale,TintColor=col,IsBoss=true,PatternInterval=interval}; b.InitBoss(hp,interval); return b; }
 
-            if (_survivalTime>=60f  &&!_midBoss1Spawned){_midBoss1Spawned=true;_enemies.Add(MakeBoss( 1750, 28,115,5.5f,Color.Purple,               6f));}
-            if (_survivalTime>=120f &&!_midBoss2Spawned){_midBoss2Spawned=true;_enemies.Add(MakeBoss( 3000, 33,125,6.0f,Color.DarkPurple,            5.5f));}
-            if (_survivalTime>=150f &&!_midBoss3Spawned){_midBoss3Spawned=true;_enemies.Add(MakeBoss( 4500, 37,130,6.5f,new Color(255,100,  0,255),  5f));}
-            if (_survivalTime>=180f &&!_midBoss4Spawned){_midBoss4Spawned=true;_enemies.Add(MakeBoss( 6500, 41,135,7.0f,new Color(200,  0,200,255),  4.5f));}
-            if (_survivalTime>=210f &&!_midBoss5Spawned){_midBoss5Spawned=true;_enemies.Add(MakeBoss( 9000, 45,140,7.5f,new Color(255, 50, 50,255),  4f));}
-            if (_survivalTime>=240f &&!_midBoss6Spawned){_midBoss6Spawned=true;_enemies.Add(MakeBoss(12500, 50,148,8.5f,new Color( 50, 50,255,255),  3.5f));}
-            if (_survivalTime>=270f &&!_midBoss7Spawned){_midBoss7Spawned=true;_enemies.Add(MakeBoss(17500, 55,155,9.5f,new Color(255,215,  0,255),  3f));}
+            if (_survivalTime>=60f  &&!_midBoss1Spawned){_midBoss1Spawned=true;_enemies.Add(MakeBoss( 900, 28,115,5.5f,Color.Purple,               6f));}
+            if (_survivalTime>=120f &&!_midBoss2Spawned){_midBoss2Spawned=true;_enemies.Add(MakeBoss( 1500, 33,125,6.0f,Color.DarkPurple,            5.5f));}
+            if (_survivalTime>=150f &&!_midBoss3Spawned){_midBoss3Spawned=true;_enemies.Add(MakeBoss( 2300, 37,130,6.5f,new Color(255,100,  0,255),  5f));}
+            if (_survivalTime>=180f &&!_midBoss4Spawned){_midBoss4Spawned=true;_enemies.Add(MakeBoss( 3300, 41,135,7.0f,new Color(200,  0,200,255),  4.5f));}
+            if (_survivalTime>=210f &&!_midBoss5Spawned){_midBoss5Spawned=true;_enemies.Add(MakeBoss( 4500, 45,140,7.5f,new Color(255, 50, 50,255),  4f));}
+            if (_survivalTime>=240f &&!_midBoss6Spawned){_midBoss6Spawned=true;_enemies.Add(MakeBoss(6300, 50,148,8.5f,new Color( 50, 50,255,255),  3.5f));}
+            if (_survivalTime>=270f &&!_midBoss7Spawned){_midBoss7Spawned=true;_enemies.Add(MakeBoss(9000, 55,155,9.5f,new Color(255,215,  0,255),  3f));}
 
             foreach (var e in _enemies) e.Update(dt, _player.Position);
 
@@ -657,15 +669,17 @@ namespace GameCore
             _player.Gold      = (int)bonusGold;
 
             _spawnTimer       = 0f;
-            _survivalTime     = 0f;
+            _survivalTime     = 120f;
             _chestAnimTimer   = 0f;
 
-            _midBoss1Spawned = false; _midBoss2Spawned = false; _midBoss3Spawned = false;
+            _midBoss1Spawned = true; _midBoss2Spawned = true; _midBoss3Spawned = false;
             _midBoss4Spawned = false; _midBoss5Spawned = false; _midBoss6Spawned = false;
             _midBoss7Spawned = false;
             _finalBossSpawned = false; _finalBoss = null;
             _bossZones?.Clear(); _bossProjectiles?.Clear(); _floorHazards?.Clear();
             Raylib.PlayMusicStream(_bgm);
+
+            _levelSystem.AddExp(500);
             _currentState = GameState.Playing;
         }
 
@@ -1452,7 +1466,7 @@ namespace GameCore
             Raylib.DrawText("SHOP", 330, 10, 40, Color.Gold);
             Raylib.DrawRectangle(560, 14, 220, 30, new Color(40,34,0,200));
             Raylib.DrawRectangleLines(560, 14, 220, 30, new Color(100,80,0,200));
-            DrawTextKR($"?? {_save.PermanentGold} G", 572, 18, 20, Color.Gold);
+            DrawTextKR($"보유골드  {_save.PermanentGold} G", 572, 18, 20, Color.Gold);
 
             var upgrades = MetaTable.All;
             int rowH = 74, startY = 72;
@@ -1661,7 +1675,7 @@ namespace GameCore
                     DrawItemIcon(evoResultIcons[evoIndex], 466, ey+17, 34);
                     resultTextX = 508;
                 }
-                DrawTextKR("?? "+evo.r, resultTextX, ey+14, 22, evo.c);
+                DrawTextKR(evo.r, resultTextX, ey+14, 22, evo.c);
                 DrawTextKR(evo.d,        resultTextX, ey+44, 14, new Color(160,160,170,255));
 
                 evoIndex++;
@@ -1888,6 +1902,9 @@ namespace GameCore
             }
 
             Raylib.DrawLine(50, 500, 750, 500, new Color(40,40,70,200));
+            DrawTextKR("BGM 볼륨", 400, 532, 18, Color.White);
+            Raylib.DrawRectangle(500, 540, 200, 4, Color.Gray); // 슬라이더 배경
+            Raylib.DrawRectangle(500 + (int)(_bgmVolume * 200) - 5, 535, 10, 14, Color.Gold); // 조절 노브
             DrawTextKR("ESC  게임으로 돌아가기       Q  게임 종료", 200, 510, 18, new Color(80,80,110,255));
         }
 
