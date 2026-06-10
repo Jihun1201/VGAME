@@ -117,7 +117,7 @@ namespace GameCore
 
         public void Run()
         {
-            Raylib.InitWindow(800, 600, "VAMPIRE COMMANDO");
+            Raylib.InitWindow(800, 600, "ASDF SURVIVOR");
             Raylib.SetTargetFPS(60);
 
             Raylib.SetExitKey(KeyboardKey.Null);
@@ -411,13 +411,13 @@ namespace GameCore
             Enemy MakeBoss(float hp, float dmg, float spd, float scale, Color col, float interval=5f)
             { var b=new Enemy{Position=BossPos(),Damage=dmg,Speed=spd,Scale=scale,TintColor=col,IsBoss=true,PatternInterval=interval}; b.InitBoss(hp,interval); return b; }
 
-            if (_survivalTime>=60f  &&!_midBoss1Spawned){_midBoss1Spawned=true;_enemies.Add(MakeBoss( 1750, 28,115,5.5f,Color.Purple,               6f));}
-            if (_survivalTime>=120f &&!_midBoss2Spawned){_midBoss2Spawned=true;_enemies.Add(MakeBoss( 3000, 33,125,6.0f,Color.DarkPurple,            5.5f));}
-            if (_survivalTime>=150f &&!_midBoss3Spawned){_midBoss3Spawned=true;_enemies.Add(MakeBoss( 4500, 37,130,6.5f,new Color(255,100,  0,255),  5f));}
-            if (_survivalTime>=180f &&!_midBoss4Spawned){_midBoss4Spawned=true;_enemies.Add(MakeBoss( 6500, 41,135,7.0f,new Color(200,  0,200,255),  4.5f));}
-            if (_survivalTime>=210f &&!_midBoss5Spawned){_midBoss5Spawned=true;_enemies.Add(MakeBoss( 9000, 45,140,7.5f,new Color(255, 50, 50,255),  4f));}
-            if (_survivalTime>=240f &&!_midBoss6Spawned){_midBoss6Spawned=true;_enemies.Add(MakeBoss(12500, 50,148,8.5f,new Color( 50, 50,255,255),  3.5f));}
-            if (_survivalTime>=270f &&!_midBoss7Spawned){_midBoss7Spawned=true;_enemies.Add(MakeBoss(17500, 55,155,9.5f,new Color(255,215,  0,255),  3f));}
+            if (_survivalTime>=60f  &&!_midBoss1Spawned){_midBoss1Spawned=true;_enemies.Add(MakeBoss( 900, 28,115,5.5f,Color.Purple,               6f));}
+            if (_survivalTime>=120f &&!_midBoss2Spawned){_midBoss2Spawned=true;_enemies.Add(MakeBoss( 1500, 33,125,6.0f,Color.DarkPurple,            5.5f));}
+            if (_survivalTime>=150f &&!_midBoss3Spawned){_midBoss3Spawned=true;_enemies.Add(MakeBoss( 2300, 37,130,6.5f,new Color(255,100,  0,255),  5f));}
+            if (_survivalTime>=180f &&!_midBoss4Spawned){_midBoss4Spawned=true;_enemies.Add(MakeBoss( 3300, 41,135,7.0f,new Color(200,  0,200,255),  4.5f));}
+            if (_survivalTime>=210f &&!_midBoss5Spawned){_midBoss5Spawned=true;_enemies.Add(MakeBoss( 4500, 45,140,7.5f,new Color(255, 50, 50,255),  4f));}
+            if (_survivalTime>=240f &&!_midBoss6Spawned){_midBoss6Spawned=true;_enemies.Add(MakeBoss(6300, 50,148,8.5f,new Color( 50, 50,255,255),  3.5f));}
+            if (_survivalTime>=270f &&!_midBoss7Spawned){_midBoss7Spawned=true;_enemies.Add(MakeBoss(9000, 55,155,9.5f,new Color(255,215,  0,255),  3f));}
 
             foreach (var e in _enemies) e.Update(dt, _player.Position);
 
@@ -669,15 +669,17 @@ namespace GameCore
             _player.Gold      = (int)bonusGold;
 
             _spawnTimer       = 0f;
-            _survivalTime     = 0f;
+            _survivalTime     = 120f;
             _chestAnimTimer   = 0f;
 
-            _midBoss1Spawned = false; _midBoss2Spawned = false; _midBoss3Spawned = false;
+            _midBoss1Spawned = true; _midBoss2Spawned = true; _midBoss3Spawned = false;
             _midBoss4Spawned = false; _midBoss5Spawned = false; _midBoss6Spawned = false;
             _midBoss7Spawned = false;
             _finalBossSpawned = false; _finalBoss = null;
             _bossZones?.Clear(); _bossProjectiles?.Clear(); _floorHazards?.Clear();
             Raylib.PlayMusicStream(_bgm);
+
+            _levelSystem.AddExp(500);
             _currentState = GameState.Playing;
         }
 
@@ -726,8 +728,9 @@ namespace GameCore
                 }
 
                 for (int g = 5; g >= 1; g--)
-                    Raylib.DrawText("VAMPIRE COMMANDO", 60 - g, 45 - g, 64, new Color((byte)255,(byte)180,(byte)0,(byte)(18 * g)));
-                Raylib.DrawText("VAMPIRE COMMANDO", 60, 45, 64, Color.Gold);
+                    Raylib.DrawText("Vampire Comanndo", 130 - g, 45 - g, 64,
+                        new Color((byte)255,(byte)180,(byte)0,(byte)(18 * g)));
+                Raylib.DrawText("Vampire Comanndo", 130, 45, 64, Color.Gold);
 
                 float sp = (float)(0.6 + 0.4 * Math.Sin(gt * 2.2));
                 DrawTextKR("5분을 버텨라", 328, 118, 18,
